@@ -19,6 +19,50 @@ pub enum Exp {
     BuildIn(fn(&[Exp]) -> Result<Exp, EvalError>, Vec<Exp>),
 }
 
+impl Exp {
+    pub fn as_nil(&self) -> Option<()> {
+        match self {
+            Exp::Nil => Some(()),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Exp::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_integer(&self) -> Option<i64> {
+        match self {
+            Exp::Integer(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            Exp::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<&str> {
+        match self {
+            Exp::Symbol(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_list(&self) -> Option<&[Exp]> {
+        match self {
+            Exp::List(l) => Some(l),
+            _ => None,
+        }
+    }
+}
+
 impl Display for Exp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
