@@ -1,9 +1,11 @@
-use crate::ast::*;
+use crate::{ast::*, buildin::default_env};
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum EvalError {
     IsNotNumber(Exp),
+    InvalidArgs,
+    DivideByZero,
     SymbolNotFound(String),
     Unexpected,
     ExpectedBool,
@@ -39,104 +41,6 @@ impl Env {
     }
 }
 
-fn parse_list_of_integer(args: &[Exp]) -> Result<Vec<i64>, EvalError> {
-    args.iter()
-        .map(|x| match x {
-            Exp::Integer(i) => Ok(*i),
-            _ => Err(EvalError::IsNotNumber(x.clone())),
-        })
-        .collect()
-}
-
-fn add(args: &[Exp]) -> Result<Exp, EvalError> {
-    if args.len() != 2 {
-        return Err(EvalError::Unexpected);
-    }
-    let args = parse_list_of_integer(args)?;
-    Ok(Exp::Integer(args[0] + args[1]))
-}
-
-fn sub(args: &[Exp]) -> Result<Exp, EvalError> {
-    if args.len() != 2 {
-        return Err(EvalError::Unexpected);
-    }
-    let args = parse_list_of_integer(args)?;
-    Ok(Exp::Integer(args[0] - args[1]))
-}
-
-fn mul(args: &[Exp]) -> Result<Exp, EvalError> {
-    if args.len() != 2 {
-        return Err(EvalError::Unexpected);
-    }
-    let args = parse_list_of_integer(args)?;
-    Ok(Exp::Integer(args[0] * args[1]))
-}
-
-fn eq(args: &[Exp]) -> Result<Exp, EvalError> {
-    if args.len() != 2 {
-        return Err(EvalError::Unexpected);
-    }
-    Ok(Exp::Bool(args[0] == args[1]))
-}
-
-fn default_env() -> Env {
-    let mut env = Env::new();
-    env.insert(
-        "+".to_string(),
-        Exp::Lambda(
-            "x".to_string(),
-            Box::new(Exp::Lambda(
-                "y".to_string(),
-                Box::new(Exp::BuildIn(
-                    add,
-                    vec![Exp::Symbol("x".to_string()), Exp::Symbol("y".to_string())],
-                )),
-            )),
-        ),
-    );
-    env.insert(
-        "-".to_string(),
-        Exp::Lambda(
-            "x".to_string(),
-            Box::new(Exp::Lambda(
-                "y".to_string(),
-                Box::new(Exp::BuildIn(
-                    sub,
-                    vec![Exp::Symbol("x".to_string()), Exp::Symbol("y".to_string())],
-                )),
-            )),
-        ),
-    );
-    env.insert(
-        "*".to_string(),
-        Exp::Lambda(
-            "x".to_string(),
-            Box::new(Exp::Lambda(
-                "y".to_string(),
-                Box::new(Exp::BuildIn(
-                    mul,
-                    vec![Exp::Symbol("x".to_string()), Exp::Symbol("y".to_string())],
-                )),
-            )),
-        ),
-    );
-    env.insert(
-        "eq?".to_string(),
-        Exp::Lambda(
-            "x".to_string(),
-            Box::new(Exp::Lambda(
-                "y".to_string(),
-                Box::new(Exp::BuildIn(
-                    eq,
-                    vec![Exp::Symbol("x".to_string()), Exp::Symbol("y".to_string())],
-                )),
-            )),
-        ),
-    );
-
-    env
-}
-
 fn is_value(e: &Exp) -> bool {
     matches!(
         e,
@@ -153,7 +57,7 @@ fn is_value(e: &Exp) -> bool {
 // [e2/x]e1
 fn subst(e2: Exp, x: String, e1: Exp, env: &mut Env) -> Exp {
     match e1 {
-        Exp::Nil | Exp::Integer(_) | Exp::Bool(_) | Exp::String(_) => e1,
+        Exp::Nil | Exp::Integer(_) | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => e1,
         Exp::Lambda(y, e) => {
             let yy = env.gen_var();
             Exp::Lambda(
@@ -172,12 +76,6 @@ fn subst(e2: Exp, x: String, e1: Exp, env: &mut Env) -> Exp {
                 Exp::Symbol(sym)
             }
         }
-        Exp::BuildIn(func, args) => Exp::BuildIn(
-            func,
-            args.into_iter()
-                .map(|e| subst(e2.clone(), x.clone(), e, env))
-                .collect(),
-        ),
         Exp::If(e11, e12, e13) => Exp::If(
             Box::new(subst(e2.clone(), x.clone(), *e11, env)),
             Box::new(subst(e2.clone(), x.clone(), *e12, env)),
@@ -250,7 +148,9 @@ fn eval_app(e1: Exp, e2: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
 
 fn step(e: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
     match e {
-        Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) => Ok((e, false)),
+        Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => {
+            Ok((e, false))
+        }
         Exp::Symbol(sym) => {
             if let Some(e) = env.get(&sym) {
                 Ok((e.clone(), true))
@@ -260,22 +160,6 @@ fn step(e: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
         }
         Exp::Lambda(..) => Ok((e, false)),
         Exp::Apply(e1, e2) => eval_app(*e1, *e2, env),
-        Exp::BuildIn(func, mut args) => {
-            let mut arg = None;
-            for (i, e) in args.iter().enumerate() {
-                if !is_value(e) {
-                    arg = Some((e.clone(), i));
-                    break;
-                }
-            }
-            if let Some((e, i)) = arg {
-                let (e, _) = step(e, env)?;
-                args[i] = e;
-                Ok((Exp::BuildIn(func, args), true))
-            } else {
-                Ok((func(&args)?, false))
-            }
-        }
         Exp::If(e1, e2, e3) => match eval(*e1)? {
             Exp::Bool(true) => Ok((*e2, true)),
             Exp::Bool(false) => Ok((*e3, true)),
@@ -303,10 +187,17 @@ fn step(e: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
         Exp::Quote(e) => Ok((*e, false)),
         Exp::List(list) => {
             if let Some((head, tail)) = list.split_first() {
-                let e = tail.iter().fold(head.clone(), |acc, e| {
-                    Exp::Apply(Box::new(acc), Box::new(e.clone()))
-                });
-                Ok((e, true))
+                let head = eval_with_env(head.clone(), env)?;
+
+                if let Exp::BuildIn(f) = head {
+                    let args = tail.iter().cloned().collect::<Vec<_>>();
+                    Ok((f(&args, env)?, false))
+                } else {
+                    let e = tail.iter().fold(head.clone(), |acc, e| {
+                        Exp::Apply(Box::new(acc), Box::new(e.clone()))
+                    });
+                    Ok((e, true))
+                }
             } else {
                 Ok((Exp::Nil, false))
             }
@@ -503,14 +394,6 @@ mod test {
     }
 
     #[test]
-    fn test_eq() {
-        let eq = |a, b| list(&[symbol("eq?"), a, b]);
-        // (eq? 1 1) => true
-        let e = eq(integer(1), integer(1));
-        assert_eq!(eval(e), Ok(bool(true)));
-    }
-
-    #[test]
     fn test_if() {
         // (if true 1 2) => 1
         let e = if_(bool(true), integer(1), integer(2));
@@ -522,28 +405,6 @@ mod test {
     }
 
     #[test]
-    fn test_add() {
-        // ((\x . (\y . (+ x y))) 1 2)
-        let e = list(&[
-            lambda(
-                "x",
-                lambda("y", list(&[symbol("+"), symbol("x"), symbol("y")])),
-            ),
-            integer(1),
-            integer(2),
-        ]);
-        assert_eq!(eval(e), Ok(Exp::Integer(3)));
-
-        // (+ 1)
-        // => \#0 (BUILDIN(+) 1 #0)
-        let e = list(&[symbol("+"), integer(1)]);
-        assert_eq!(
-            eval(e),
-            Ok(lambda("#0", buildin(add, &[integer(1), symbol("#0")])))
-        );
-    }
-
-    #[test]
     fn test_frac() {
         let mut env = default_env();
         env.insert(
@@ -551,7 +412,7 @@ mod test {
             lambda(
                 "n",
                 if_(
-                    list(&[symbol("eq?"), symbol("n"), integer(0)]),
+                    list(&[symbol("=="), symbol("n"), integer(0)]),
                     integer(1),
                     list(&[
                         symbol("*"),

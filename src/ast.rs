@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::eval::EvalError;
+use crate::eval::{Env, EvalError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Exp {
@@ -16,7 +16,7 @@ pub enum Exp {
     Quote(Box<Exp>),
     Let((String, Box<Exp>), Box<Exp>),
     Case(Box<Exp>, Vec<(Exp, Exp)>),
-    BuildIn(fn(&[Exp]) -> Result<Exp, EvalError>, Vec<Exp>),
+    BuildIn(fn(&[Exp], &mut Env) -> Result<Exp, EvalError>),
 }
 
 impl Exp {
@@ -94,14 +94,7 @@ impl Display for Exp {
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
-            Exp::BuildIn(_, args) => write!(
-                f,
-                "(#buildin {})",
-                args.iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            ),
+            Exp::BuildIn(_) => write!(f, "#buildin",),
         }
     }
 }
@@ -154,6 +147,6 @@ pub fn quote(e: Exp) -> Exp {
     Exp::Quote(Box::new(e))
 }
 
-pub fn buildin(f: fn(&[Exp]) -> Result<Exp, EvalError>, args: &[Exp]) -> Exp {
-    Exp::BuildIn(f, args.to_vec())
+pub fn buildin(f: fn(&[Exp], &mut Env) -> Result<Exp, EvalError>) -> Exp {
+    Exp::BuildIn(f)
 }
