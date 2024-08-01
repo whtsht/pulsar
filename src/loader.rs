@@ -1,15 +1,8 @@
-use std::collections::HashMap;
-
 use crate::{
-    ast::Exp,
+    ast::Module,
+    buildin::default_module,
     parser::{ParseError, Parser},
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Module {
-    pub name: String,
-    pub defines: HashMap<String, Exp>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadError {
@@ -25,7 +18,7 @@ pub fn load_module(source: &str) -> Result<Module> {
         .parse_module()
         .map_err(|err| LoadError::ParseError(err))?;
 
-    let mut defines = HashMap::new();
+    let mut defines = default_module().defines;
     for (name, exp) in defs.into_iter() {
         if defines.contains_key(&name) {
             return Err(LoadError::DuplicateDefinition(name));
@@ -39,6 +32,7 @@ pub fn load_module(source: &str) -> Result<Module> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::Exp;
 
     #[test]
     fn test_load_module() {

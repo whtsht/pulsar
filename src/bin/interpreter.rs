@@ -28,7 +28,7 @@ fn main() {
             }
         };
 
-        match eval::eval(ast) {
+        match eval::eval_default_module(ast) {
             Ok(result) => println!("\n==> {}", result),
             Err(e) => {
                 println!("{:?}", e);

@@ -1,5 +1,4 @@
-use crate::{ast::*, buildin::default_env};
-use std::collections::HashMap;
+use crate::{ast::*, buildin::default_module};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum EvalError {
@@ -11,34 +10,6 @@ pub enum EvalError {
     ExpectedBool,
     ExpectedLambda,
     FailedToApply,
-}
-
-pub struct Env {
-    defines: HashMap<String, Exp>,
-    counter: u64,
-}
-
-impl Env {
-    pub fn new() -> Self {
-        Self {
-            defines: HashMap::new(),
-            counter: 0,
-        }
-    }
-
-    pub fn insert(&mut self, key: String, value: Exp) {
-        self.defines.insert(key, value);
-    }
-
-    pub fn get(&self, key: &String) -> Option<&Exp> {
-        self.defines.get(key)
-    }
-
-    pub fn gen_var(&mut self) -> String {
-        let var = format!("#{}", self.counter);
-        self.counter += 1;
-        var
-    }
 }
 
 fn is_value(e: &Exp) -> bool {
@@ -54,20 +25,36 @@ fn is_value(e: &Exp) -> bool {
     )
 }
 
+pub struct VariableGenerator {
+    counter: u64,
+}
+
+impl VariableGenerator {
+    pub fn new() -> Self {
+        Self { counter: 0 }
+    }
+
+    pub fn gen_var(&mut self) -> String {
+        let var = format!("#{}", self.counter);
+        self.counter += 1;
+        var
+    }
+}
+
 // [e2/x]e1
-fn subst(e2: Exp, x: String, e1: Exp, env: &mut Env) -> Exp {
+fn subst(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
     match e1 {
         Exp::Nil | Exp::Integer(_) | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => e1,
         Exp::Lambda(y, e) => {
-            let yy = env.gen_var();
+            let yy = gen.gen_var();
             Exp::Lambda(
                 yy.clone(),
-                Box::new(subst(e2, x, subst(Exp::Symbol(yy), y, *e, env), env)),
+                Box::new(subst(e2, x, subst(Exp::Symbol(yy), y, *e, gen), gen)),
             )
         }
         Exp::Apply(e11, e12) => Exp::Apply(
-            Box::new(subst(e2.clone(), x.clone(), *e11, env)),
-            Box::new(subst(e2, x, *e12, env)),
+            Box::new(subst(e2.clone(), x.clone(), *e11, gen)),
+            Box::new(subst(e2, x, *e12, gen)),
         ),
         Exp::Symbol(sym) => {
             if sym == x {
@@ -77,28 +64,28 @@ fn subst(e2: Exp, x: String, e1: Exp, env: &mut Env) -> Exp {
             }
         }
         Exp::If(e11, e12, e13) => Exp::If(
-            Box::new(subst(e2.clone(), x.clone(), *e11, env)),
-            Box::new(subst(e2.clone(), x.clone(), *e12, env)),
-            Box::new(subst(e2, x, *e13, env)),
+            Box::new(subst(e2.clone(), x.clone(), *e11, gen)),
+            Box::new(subst(e2.clone(), x.clone(), *e12, gen)),
+            Box::new(subst(e2, x, *e13, gen)),
         ),
         Exp::Let(bind, e) => {
             let (sym, body) = bind;
             let e1 = apply(lambda(&sym, *e), *body);
-            subst(e2, x, e1, env)
+            subst(e2, x, e1, gen)
         }
         Exp::Case(e, cases) => Exp::Case(
-            Box::new(subst(e2.clone(), x.clone(), *e, env)),
+            Box::new(subst(e2.clone(), x.clone(), *e, gen)),
             cases
                 .into_iter()
                 .map(|(cond, body)| {
                     if let Exp::Symbol(sym) = &cond {
-                        let var = env.gen_var();
-                        let body = subst(symbol(&var), sym.clone(), body, env);
-                        (symbol(&var), subst(e2.clone(), x.clone(), body, env))
+                        let var = gen.gen_var();
+                        let body = subst(symbol(&var), sym.clone(), body, gen);
+                        (symbol(&var), subst(e2.clone(), x.clone(), body, gen))
                     } else {
                         (
-                            subst(e2.clone(), x.clone(), cond, env),
-                            subst(e2.clone(), x.clone(), body, env),
+                            subst(e2.clone(), x.clone(), cond, gen),
+                            subst(e2.clone(), x.clone(), body, gen),
                         )
                     }
                 })
@@ -107,20 +94,25 @@ fn subst(e2: Exp, x: String, e1: Exp, env: &mut Env) -> Exp {
         Exp::Quote(_) => e1,
         Exp::List(list) => Exp::List(
             list.into_iter()
-                .map(|e| subst(e2.clone(), x.clone(), e, env))
+                .map(|e| subst(e2.clone(), x.clone(), e, gen))
                 .collect(),
         ),
     }
 }
 
-fn eval_app(e1: Exp, e2: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
+fn eval_app(
+    e1: Exp,
+    e2: Exp,
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<(Exp, bool), EvalError> {
     match e1 {
         Exp::Lambda(x, e11) => {
             if is_value(&e2) {
-                let e = subst(e2, x, *e11, env);
+                let e = subst(e2, x, *e11, gen);
                 Ok((e, true))
             } else {
-                let (e2, _) = step(e2, env)?;
+                let (e2, _) = step(e2, module, gen)?;
                 Ok((
                     Exp::Apply(Box::new(Exp::Lambda(x, e11)), Box::new(e2)),
                     true,
@@ -128,39 +120,39 @@ fn eval_app(e1: Exp, e2: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
             }
         }
         Exp::Symbol(sym) => {
-            if let Some(e1) = env.get(&sym) {
-                eval_app(e1.clone(), e2, env)
+            if let Some(e1) = module.get(&sym) {
+                eval_app(e1.clone(), e2, module, gen)
             } else {
                 Err(EvalError::SymbolNotFound(sym))
             }
         }
         Exp::Apply(..) => {
-            let (e1, _) = step(e1, env)?;
+            let (e1, _) = step(e1, module, gen)?;
             Ok((Exp::Apply(Box::new(e1), Box::new(e2)), true))
         }
         Exp::List(es) => {
-            let (e1, _) = step(Exp::List(es), env)?;
+            let (e1, _) = step(Exp::List(es), module, gen)?;
             Ok((Exp::Apply(Box::new(e1), Box::new(e2)), true))
         }
         _ => Err(EvalError::FailedToApply),
     }
 }
 
-fn step(e: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
-    match e {
+fn step(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<(Exp, bool), EvalError> {
+    match exp {
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => {
-            Ok((e, false))
+            Ok((exp, false))
         }
         Exp::Symbol(sym) => {
-            if let Some(e) = env.get(&sym) {
+            if let Some(e) = module.get(&sym) {
                 Ok((e.clone(), true))
             } else {
                 Err(EvalError::SymbolNotFound(sym))
             }
         }
-        Exp::Lambda(..) => Ok((e, false)),
-        Exp::Apply(e1, e2) => eval_app(*e1, *e2, env),
-        Exp::If(e1, e2, e3) => match eval(*e1)? {
+        Exp::Lambda(..) => Ok((exp, false)),
+        Exp::Apply(e1, e2) => eval_app(*e1, *e2, module, gen),
+        Exp::If(e1, e2, e3) => match eval(*e1, module, gen)? {
             Exp::Bool(true) => Ok((*e2, true)),
             Exp::Bool(false) => Ok((*e3, true)),
             _ => Err(EvalError::ExpectedBool),
@@ -173,7 +165,7 @@ fn step(e: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
             if is_value(&e) {
                 for (cond, body) in cases {
                     if let Exp::Symbol(sym) = &cond {
-                        return Ok((subst(*e, sym.clone(), body, env), true));
+                        return Ok((subst(*e, sym.clone(), body, gen), true));
                     }
                     if *e == cond {
                         return Ok((body, true));
@@ -181,17 +173,17 @@ fn step(e: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
                 }
                 todo!()
             } else {
-                Ok((step(*e, env)?.0, true))
+                Ok((step(*e, module, gen)?.0, true))
             }
         }
         Exp::Quote(e) => Ok((*e, false)),
         Exp::List(list) => {
             if let Some((head, tail)) = list.split_first() {
-                let head = eval_with_env(head.clone(), env)?;
+                let head = eval(head.clone(), module, gen)?;
 
                 if let Exp::BuildIn(f) = head {
                     let args = tail.iter().cloned().collect::<Vec<_>>();
-                    Ok((f(&args, env)?, false))
+                    Ok((f(&args, module, gen)?, false))
                 } else {
                     let e = tail.iter().fold(head.clone(), |acc, e| {
                         Exp::Apply(Box::new(acc), Box::new(e.clone()))
@@ -205,35 +197,65 @@ fn step(e: Exp, env: &mut Env) -> Result<(Exp, bool), EvalError> {
     }
 }
 
-pub fn eval(mut e: Exp) -> Result<Exp, EvalError> {
-    let mut env = default_env();
+pub fn eval_empty_module(mut exp: Exp) -> Result<Exp, EvalError> {
+    let mut gen = VariableGenerator::new();
     loop {
-        match step(e, &mut env) {
-            Ok((e1, true)) => e = e1,
-            Ok((e1, false)) => return Ok(e1),
-            Err(e) => return Err(e),
+        match step(exp, &Module::new("empty"), &mut gen) {
+            Ok((exp_next, true)) => exp = exp_next,
+            Ok((exp_next, false)) => return Ok(exp_next),
+            Err(err) => return Err(err),
         }
     }
 }
 
-pub fn eval_with_env(mut e: Exp, env: &mut Env) -> Result<Exp, EvalError> {
+pub fn eval_default_module(mut exp: Exp) -> Result<Exp, EvalError> {
+    let mut gen = VariableGenerator::new();
     loop {
-        match step(e, env) {
-            Ok((e1, true)) => e = e1,
-            Ok((e1, false)) => return Ok(e1),
-            Err(e) => return Err(e),
+        match step(exp, &default_module(), &mut gen) {
+            Ok((exp_next, true)) => exp = exp_next,
+            Ok((exp_next, false)) => return Ok(exp_next),
+            Err(err) => return Err(err),
         }
+    }
+}
+
+pub fn eval(mut exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
+    loop {
+        match step(exp, module, gen) {
+            Ok((exp_next, true)) => exp = exp_next,
+            Ok((exp_next, false)) => return Ok(exp_next),
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+impl Module {
+    pub fn run(&self, name: &str) -> Result<Exp, EvalError> {
+        let exp = self
+            .get(name)
+            .map(|e| e.clone())
+            .ok_or(EvalError::SymbolNotFound(name.to_string()))?;
+        let mut gen = VariableGenerator::new();
+
+        eval(exp, self, &mut gen)
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::buildin::default_module;
+
     use super::*;
 
     #[test]
     fn test_subst() {
         // [2/x]x => 2
-        let e = subst(integer(2), "x".to_string(), symbol("x"), &mut Env::new());
+        let e = subst(
+            integer(2),
+            "x".to_string(),
+            symbol("x"),
+            &mut VariableGenerator::new(),
+        );
         assert_eq!(e, integer(2));
 
         // [2/x]((\ x 1) x)
@@ -242,7 +264,7 @@ mod test {
             integer(2),
             "x".to_string(),
             apply(lambda("x", integer(1)), symbol("x")),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(e, apply(lambda("#0", integer(1)), integer(2)));
 
@@ -252,7 +274,7 @@ mod test {
             integer(2),
             "x".to_string(),
             apply(lambda("x", symbol("x")), integer(1)),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(e, apply(lambda("#0", symbol("#0")), integer(1)));
 
@@ -263,7 +285,7 @@ mod test {
             integer(2),
             "x".to_string(),
             let_(("x", integer(1)), symbol("x")),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(e, apply(lambda("#0", symbol("#0")), integer(1)));
 
@@ -274,7 +296,7 @@ mod test {
             integer(2),
             "x".to_string(),
             let_(("y", integer(1)), symbol("x")),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(e, apply(lambda("#0", integer(2)), integer(1)));
 
@@ -291,7 +313,7 @@ mod test {
                     (symbol("_"), integer(0)),
                 ],
             ),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(
             e,
@@ -311,7 +333,7 @@ mod test {
             integer(2),
             "x".to_string(),
             case(integer(1), &[(integer(1), symbol("x"))]),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(e, case(integer(1), &[(integer(1), integer(2))]));
 
@@ -321,7 +343,7 @@ mod test {
             integer(2),
             "x".to_string(),
             case(integer(1), &[(symbol("x"), symbol("x"))]),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(e, case(integer(1), &[(symbol("#0"), symbol("#0"))],));
 
@@ -334,7 +356,7 @@ mod test {
                 integer(1),
                 &[(symbol("y"), list(&[symbol("+"), symbol("y"), symbol("x")]))],
             ),
-            &mut Env::new(),
+            &mut VariableGenerator::new(),
         );
         assert_eq!(
             e,
@@ -349,23 +371,26 @@ mod test {
     fn test_atom() {
         // Nil => Nil
         let e = nil();
-        assert_eq!(eval(e), Ok(nil()));
+        assert_eq!(eval_empty_module(e), Ok(nil()));
 
         // 1 => 1
         let e = integer(1);
-        assert_eq!(eval(e), Ok(integer(1)));
+        assert_eq!(eval_empty_module(e), Ok(integer(1)));
 
         // "hello" => "hello"
         let e = string("hello");
-        assert_eq!(eval(e), Ok(string("hello")));
+        assert_eq!(eval_empty_module(e), Ok(string("hello")));
 
         // (quote ((\ x x) 1)) => ((\ x x) 1)
         let e = quote(apply(lambda("x", symbol("x")), integer(1)));
-        assert_eq!(eval(e), Ok(apply(lambda("x", symbol("x")), integer(1))));
+        assert_eq!(
+            eval_empty_module(e),
+            Ok(apply(lambda("x", symbol("x")), integer(1)))
+        );
 
         // (quote a) => a
         let e = quote(symbol("a"));
-        assert_eq!(eval(e), Ok(symbol("a")));
+        assert_eq!(eval_empty_module(e), Ok(symbol("a")));
     }
 
     #[test]
@@ -375,14 +400,14 @@ mod test {
             apply(lambda("x", lambda("y", symbol("y"))), quote(symbol("a"))),
             quote(symbol("b")),
         );
-        assert_eq!(eval(e), Ok(symbol("b")));
+        assert_eq!(eval_empty_module(e), Ok(symbol("b")));
 
         // // ((\x . (\y . y)) 'a 'b) => b
         let e = apply(
             apply(lambda("x", lambda("y", symbol("y"))), quote(symbol("a"))),
             quote(symbol("b")),
         );
-        assert_eq!(eval(e), Ok(symbol("b")));
+        assert_eq!(eval_empty_module(e), Ok(symbol("b")));
 
         // ((\x (\y (x y))) y)
         // => (\#0 (y #0))
@@ -390,24 +415,27 @@ mod test {
             lambda("x", lambda("y", apply(symbol("x"), symbol("y")))),
             symbol("y"),
         );
-        assert_eq!(eval(e), Ok(lambda("#0", apply(symbol("y"), symbol("#0")))),);
+        assert_eq!(
+            eval_empty_module(e),
+            Ok(lambda("#0", apply(symbol("y"), symbol("#0")))),
+        );
     }
 
     #[test]
     fn test_if() {
         // (if true 1 2) => 1
         let e = if_(bool(true), integer(1), integer(2));
-        assert_eq!(eval(e), Ok(integer(1)));
+        assert_eq!(eval_empty_module(e), Ok(integer(1)));
 
         // (if false 1 2) => 2
         let e = if_(bool(false), integer(1), integer(2));
-        assert_eq!(eval(e), Ok(integer(2)));
+        assert_eq!(eval_empty_module(e), Ok(integer(2)));
     }
 
     #[test]
     fn test_frac() {
-        let mut env = default_env();
-        env.insert(
+        let mut module = default_module();
+        module.defines.insert(
             "frac".to_string(),
             lambda(
                 "n",
@@ -425,8 +453,9 @@ mod test {
                 ),
             ),
         );
-        let e = list(&[symbol("frac"), integer(5)]);
-        assert_eq!(eval_with_env(e, &mut env), Ok(integer(120)));
+        let exp = list(&[symbol("frac"), integer(5)]);
+        let mut gen = VariableGenerator::new();
+        assert_eq!(eval(exp, &module, &mut gen), Ok(integer(120)));
     }
 
     #[test]
@@ -438,7 +467,7 @@ mod test {
             ("a", integer(1)),
             list(&[symbol("+"), symbol("a"), integer(10)]),
         );
-        assert_eq!(eval(e), Ok(integer(11)));
+        assert_eq!(eval_default_module(e), Ok(integer(11)));
         // (let (a 1) (let (b a) (+ a b)))
         // => (let (b 1) (+ 1 b))
         // => (+ 1 1)
@@ -450,7 +479,7 @@ mod test {
                 list(&[symbol("+"), symbol("a"), symbol("b")]),
             ),
         );
-        assert_eq!(eval(e), Ok(integer(2)));
+        assert_eq!(eval_default_module(e), Ok(integer(2)));
     }
 
     #[test]
@@ -469,7 +498,7 @@ mod test {
                 (symbol("_"), string("other")),
             ],
         );
-        assert_eq!(eval(e), Ok(string("one")));
+        assert_eq!(eval_empty_module(e), Ok(string("one")));
 
         // (case nil
         //   (1 "one")
@@ -485,7 +514,7 @@ mod test {
                 (symbol("_"), string("other")),
             ],
         );
-        assert_eq!(eval(e), Ok(string("other")));
+        assert_eq!(eval_empty_module(e), Ok(string("other")));
 
         // (case 3
         //   (1 "one")
@@ -501,7 +530,7 @@ mod test {
                 (symbol("x"), list(&[symbol("+"), symbol("x"), integer(1)])),
             ],
         );
-        assert_eq!(eval(e), Ok(integer(4)));
+        assert_eq!(eval_default_module(e), Ok(integer(4)));
 
         // (case 3
         //   (1 "one")
@@ -516,63 +545,6 @@ mod test {
                 (symbol("_"), string("other")),
             ],
         );
-        assert_eq!(eval(e), Ok(integer(3)));
-    }
-
-    #[test]
-    fn test_call_by_value() {
-        fn step_by(e: Exp, cnt: u32, env: &mut Env) -> Exp {
-            let mut e = e;
-            for _ in 0..cnt {
-                e = step(e, env).unwrap().0;
-            }
-            e
-        }
-        // ((\ x (\ y (y x))) (+ 2 2) (\ x (+ x 1)))
-        let e = apply(
-            apply(
-                lambda("x", lambda("y", apply(symbol("y"), symbol("x")))),
-                list(&[symbol("+"), integer(2), integer(2)]),
-            ),
-            lambda("x", list(&[symbol("+"), symbol("x"), integer(1)])),
-        );
-
-        let mut env = default_env();
-
-        // => ((\ x (\ y (y x))) 4 (\ x (+ x 1)))
-        let e = step_by(e, 4, &mut env);
-        let expected = apply(
-            apply(
-                lambda("x", lambda("y", apply(symbol("y"), symbol("x")))),
-                integer(4),
-            ),
-            lambda("x", list(&[symbol("+"), symbol("x"), integer(1)])),
-        );
-        assert_eq!(expected, e);
-
-        // => ((\ y (y 4)) (\ x (+ x 1)))
-        let e = step_by(e, 1, &mut env);
-        let expected = apply(
-            lambda("#1", apply(symbol("#1"), integer(4))),
-            lambda("x", list(&[symbol("+"), symbol("x"), integer(1)])),
-        );
-        assert_eq!(expected, e);
-
-        // => (\ x (+ x 1)) 4
-        let e = step_by(e, 1, &mut env);
-        let expected = apply(
-            lambda("x", list(&[symbol("+"), symbol("x"), integer(1)])),
-            integer(4),
-        );
-        assert_eq!(expected, e);
-
-        // => (+ 4 1)
-        let e = step_by(e, 1, &mut env);
-        let expected = list(&[symbol("+"), integer(4), integer(1)]);
-        assert_eq!(expected, e);
-
-        // => 5
-        let e = step_by(e, 4, &mut env);
-        assert_eq!(e, Exp::Integer(5));
+        assert_eq!(eval_empty_module(e), Ok(integer(3)));
     }
 }

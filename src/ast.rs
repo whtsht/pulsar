@@ -1,16 +1,24 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::eval::{Env, EvalError};
+use crate::eval::{EvalError, VariableGenerator};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module {
+    pub name: String,
     pub defines: HashMap<String, Exp>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Def {
-    pub name: String,
-    pub exp: Exp,
+impl Module {
+    pub fn new(name: &str) -> Self {
+        Module {
+            name: name.to_string(),
+            defines: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Exp> {
+        self.defines.get(name)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +35,7 @@ pub enum Exp {
     Quote(Box<Exp>),
     Let((String, Box<Exp>), Box<Exp>),
     Case(Box<Exp>, Vec<(Exp, Exp)>),
-    BuildIn(fn(&[Exp], &mut Env) -> Result<Exp, EvalError>),
+    BuildIn(fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>),
 }
 
 impl Exp {
@@ -158,6 +166,6 @@ pub fn quote(e: Exp) -> Exp {
     Exp::Quote(Box::new(e))
 }
 
-pub fn buildin(f: fn(&[Exp], &mut Env) -> Result<Exp, EvalError>) -> Exp {
+pub fn buildin(f: fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>) -> Exp {
     Exp::BuildIn(f)
 }
