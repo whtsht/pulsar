@@ -1,6 +1,17 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::eval::{Env, EvalError};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Module {
+    pub defines: HashMap<String, Exp>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Def {
+    pub name: String,
+    pub exp: Exp,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Exp {

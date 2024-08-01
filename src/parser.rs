@@ -57,6 +57,23 @@ impl Parser {
         }
     }
 
+    pub fn parse_symbol(&mut self) -> Result<String, ParseError> {
+        let token = self.next_token()?;
+        token
+            .as_symbol()
+            .map(|s| s.to_string())
+            .ok_or(ParseError::ExpectedSymbol(token))
+    }
+
+    pub fn parse_special_symbol(&mut self, sym: &str) -> Result<(), ParseError> {
+        let token = self.next_token()?;
+        if token.as_symbol() == Some(sym) {
+            Ok(())
+        } else {
+            Err(ParseError::ExpectedSymbol(token))
+        }
+    }
+
     pub fn parse_lambda(&mut self) -> Result<Exp, ParseError> {
         self.lexer.skip_token();
 
@@ -71,7 +88,7 @@ impl Parser {
         Ok(lambda(param, body))
     }
 
-    pub fn parse_list(&mut self) -> Result<Exp, ParseError> {
+    pub fn parse_exps(&mut self) -> Result<Vec<Exp>, ParseError> {
         let mut elems = Vec::new();
         while let Ok(token) = self.lexer.peek_token() {
             match token.kind {
@@ -85,7 +102,7 @@ impl Parser {
         }
         self.parse_right_param()?;
 
-        Ok(list(&elems))
+        Ok(elems)
     }
 
     pub fn parse_if(&mut self) -> Result<Exp, ParseError> {
@@ -130,7 +147,7 @@ impl Parser {
     }
 
     pub fn parse_exp(&mut self) -> Result<Exp, ParseError> {
-        let token = self.lexer.next_token().map_err(ParseError::LexerError)?;
+        let token = self.next_token()?;
         match token.kind {
             TokenKind::Integer(int) => Ok(integer(int)),
             TokenKind::String(s) => Ok(Exp::String(s)),
@@ -147,12 +164,53 @@ impl Parser {
                     "if" => self.parse_if(),
                     "let" => self.parse_let(),
                     "case" => self.parse_cases(),
-                    _ => self.parse_list(),
+                    _ => Ok(list(&self.parse_exps()?)),
                 },
-                _ => self.parse_list(),
+                _ => Ok(list(&self.parse_exps()?)),
             },
             TokenKind::RParen => Err(ParseError::UnmatchedParen(token)),
         }
+    }
+
+    pub fn parse_def(&mut self) -> Result<(String, Exp), ParseError> {
+        self.parse_left_param()?;
+        self.parse_special_symbol("define")?;
+
+        let name = self.parse_symbol()?;
+
+        self.parse_left_param()?;
+        let args = self.parse_exps()?;
+
+        let body = self.parse_exp()?;
+
+        self.parse_right_param()?;
+
+        let exp = args
+            .into_iter()
+            .rev()
+            .fold(body, |acc, arg| lambda(arg.as_symbol().unwrap(), acc));
+
+        Ok((name, exp))
+    }
+
+    pub fn parse_module(&mut self) -> Result<(String, Vec<(String, Exp)>), ParseError> {
+        self.parse_left_param()?;
+        self.parse_special_symbol("module")?;
+
+        let module_name = self.parse_symbol()?;
+
+        let mut defines = Vec::new();
+
+        while let Ok(token) = self.lexer.peek_token() {
+            if token.kind == TokenKind::RParen {
+                break;
+            }
+            defines.push(self.parse_def()?);
+        }
+
+        self.parse_right_param()?;
+
+        Ok((module_name, defines))
     }
 }
 
@@ -284,5 +342,23 @@ mod tests {
 
         let mut parser = Parser::new("()");
         assert_eq!(parser.parse_exp(), Ok(list(&vec![])));
+    }
+
+    #[test]
+    fn test_parse_module() {
+        let mut parser = Parser::new("(module main (define foo (x) (+ 2 4)) (define bar () 2))");
+        assert_eq!(
+            parser.parse_module(),
+            Ok((
+                "main".to_string(),
+                vec![
+                    (
+                        "foo".to_string(),
+                        lambda("x", list(&vec![symbol("+"), integer(2), integer(4)]))
+                    ),
+                    ("bar".to_string(), integer(2))
+                ]
+            ))
+        );
     }
 }
