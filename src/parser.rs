@@ -193,20 +193,24 @@ impl Parser {
         Ok((name, exp))
     }
 
-    pub fn parse_module(&mut self) -> Result<(String, Vec<(String, Exp)>), ParseError> {
-        self.parse_left_param()?;
-        self.parse_special_symbol("module")?;
-
-        let module_name = self.parse_symbol()?;
-
+    pub fn parse_defines(&mut self) -> Result<Vec<(String, Exp)>, ParseError> {
         let mut defines = Vec::new();
-
         while let Ok(token) = self.lexer.peek_token() {
             if token.kind == TokenKind::RParen {
                 break;
             }
             defines.push(self.parse_def()?);
         }
+        Ok(defines)
+    }
+
+    pub fn parse_module(&mut self) -> Result<(String, Vec<(String, Exp)>), ParseError> {
+        self.parse_left_param()?;
+        self.parse_special_symbol("module")?;
+
+        let module_name = self.parse_symbol()?;
+
+        let defines = self.parse_defines()?;
 
         self.parse_right_param()?;
 
