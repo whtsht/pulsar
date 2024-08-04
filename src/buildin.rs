@@ -1,5 +1,5 @@
 use crate::{
-    ast::{self, Exp, Module},
+    ast::{self, apply, Exp, Module},
     eval::{eval, EvalError, VariableGenerator},
 };
 
@@ -9,7 +9,7 @@ fn parse_unary(
     gen: &mut VariableGenerator,
 ) -> Result<Exp, EvalError> {
     if args.len() != 1 {
-        return Err(EvalError::InvalidArgs);
+        return Err(EvalError::InvalidArgs(args.to_vec()));
     }
 
     let exp = eval(args[0].clone(), module, gen)?;
@@ -22,7 +22,7 @@ fn parse_binary(
     gen: &mut VariableGenerator,
 ) -> Result<(Exp, Exp), EvalError> {
     if args.len() != 2 {
-        return Err(EvalError::InvalidArgs);
+        return Err(EvalError::InvalidArgs(args.to_vec()));
     }
     let lhs = eval(args[0].clone(), module, gen)?;
     let rhs = eval(args[1].clone(), module, gen)?;
@@ -35,13 +35,15 @@ fn parse_binary_integer(
     gen: &mut VariableGenerator,
 ) -> Result<(i64, i64), EvalError> {
     if args.len() != 2 {
-        return Err(EvalError::InvalidArgs);
+        return Err(EvalError::InvalidArgs(args.to_vec()));
     }
     let lhs = eval(args[0].clone(), module, gen)?;
     let rhs = eval(args[1].clone(), module, gen)?;
     Ok((
-        lhs.as_integer().ok_or(EvalError::InvalidArgs)?,
-        rhs.as_integer().ok_or(EvalError::InvalidArgs)?,
+        lhs.as_integer()
+            .ok_or(EvalError::InvalidArgs(args.to_vec()))?,
+        rhs.as_integer()
+            .ok_or(EvalError::InvalidArgs(args.to_vec()))?,
     ))
 }
 
@@ -63,7 +65,10 @@ fn mul(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp
 fn div(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     let (lhs, rhs) = parse_binary_integer(args, module, gen)?;
     if rhs == 0 {
-        return Err(EvalError::DivideByZero);
+        return Err(EvalError::DivideByZero(apply(
+            args[0].clone(),
+            args[1].clone(),
+        )));
     }
     Ok(Exp::Integer(lhs / rhs))
 }
@@ -93,35 +98,37 @@ fn first(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<E
     let exp = parse_unary(args, module, gen)?;
     exp.as_list()
         .and_then(|list| list.get(0).cloned())
-        .ok_or(EvalError::InvalidArgs)
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))
 }
 
 fn second(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     let exp = parse_unary(args, module, gen)?;
     exp.as_list()
         .and_then(|list| list.get(1).cloned())
-        .ok_or(EvalError::InvalidArgs)
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))
 }
 
 fn third(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     let exp = parse_unary(args, module, gen)?;
     exp.as_list()
         .and_then(|list| list.get(2).cloned())
-        .ok_or(EvalError::InvalidArgs)
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))
 }
 
 fn nth(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     if args.len() != 2 {
-        return Err(EvalError::InvalidArgs);
+        return Err(EvalError::InvalidArgs(args.to_vec()));
     }
     let n = eval(args[0].clone(), module, gen)?
         .as_integer()
-        .ok_or(EvalError::InvalidArgs)?;
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
     let list = eval(args[1].clone(), module, gen)?
         .as_list()
         .map(|l| l.to_vec())
-        .ok_or(EvalError::InvalidArgs)?;
-    list.get(n as usize).cloned().ok_or(EvalError::InvalidArgs)
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    list.get(n as usize)
+        .cloned()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))
 }
 
 fn is_atom(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {

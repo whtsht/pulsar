@@ -3,8 +3,6 @@ name = "topogi-lang"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-
 [[bin]]
 name = "tgi"
 path = "src/bin/interpreter.rs"

@@ -3,12 +3,12 @@ use crate::{ast::*, buildin::default_module};
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum EvalError {
     IsNotNumber(Exp),
-    InvalidArgs,
-    DivideByZero,
+    InvalidArgs(Vec<Exp>),
+    DivideByZero(Exp),
     SymbolNotFound(String),
-    Unexpected,
-    ExpectedBool,
-    ExpectedLambda,
+    Unexpected(Exp),
+    ExpectedBool(Exp),
+    ExpectedLambda(Exp),
     FailedToApply(Exp, Exp),
 }
 
@@ -139,7 +139,7 @@ fn eval_app(
 }
 
 fn step(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<(Exp, bool), EvalError> {
-    match exp {
+    match exp.clone() {
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => {
             Ok((exp, false))
         }
@@ -155,7 +155,7 @@ fn step(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<(Exp, 
         Exp::If(e1, e2, e3) => match eval(*e1, module, gen)? {
             Exp::Bool(true) => Ok((*e2, true)),
             Exp::Bool(false) => Ok((*e3, true)),
-            _ => Err(EvalError::ExpectedBool),
+            _ => Err(EvalError::ExpectedBool(exp)),
         },
         Exp::Let(bind, exp) => {
             let (sym, body) = bind;
