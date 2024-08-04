@@ -230,20 +230,22 @@ pub fn eval(mut exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
 }
 
 impl Module {
-    pub fn run(&self, name: &str) -> Result<Exp, EvalError> {
-        let exp = self
+    pub fn run(&self, name: &str, args: Vec<Exp>) -> Result<Exp, EvalError> {
+        let mut exp = self
             .get(name)
             .map(|e| e.clone())
-            .ok_or(EvalError::SymbolNotFound(name.to_string()))?;
+            .ok_or_else(|| EvalError::SymbolNotFound(name.to_string()))?;
         let mut gen = VariableGenerator::new();
-
+        for arg in args {
+            exp = apply(exp, arg);
+        }
         eval(exp, self, &mut gen)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::buildin::default_module;
+    use crate::{buildin::default_module, loader::load_module};
 
     use super::*;
 
@@ -546,5 +548,19 @@ mod test {
             ],
         );
         assert_eq!(eval_empty_module(e), Ok(integer(3)));
+    }
+
+    #[test]
+    fn test_load_func_with_arg() {
+        let source = r#"
+        (define test (a b c d) (+ (* a b) (* c d)))
+        "#;
+        let module = load_module("test", source).unwrap();
+        println!("{:?}", module.get("test"));
+        assert_eq!(module.defines.len(), default_module().defines.len() + 1);
+        assert_eq!(
+            module.run("test", vec![integer(2), integer(5), integer(1), integer(3)]),
+            Ok(integer(13))
+        );
     }
 }

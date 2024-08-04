@@ -365,4 +365,19 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn test_parse_multi_args() {
+        let mut parser = Parser::new("(define test (a b c d e) c)");
+        assert_eq!(
+            parser.parse_def(),
+            Ok((
+                "test".to_string(),
+                lambda(
+                    "a",
+                    lambda("b", lambda("c", lambda("d", lambda("e", symbol("c")))))
+                )
+            ))
+        );
+    }
 }
