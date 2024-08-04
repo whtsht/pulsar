@@ -241,6 +241,11 @@ impl Module {
         }
         eval(exp, self, &mut gen)
     }
+
+    pub fn eval(&self, exp: Exp) -> Result<Exp, EvalError> {
+        let mut gen = VariableGenerator::new();
+        eval(exp, self, &mut gen)
+    }
 }
 
 #[cfg(test)]
