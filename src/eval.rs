@@ -9,7 +9,7 @@ pub enum EvalError {
     Unexpected,
     ExpectedBool,
     ExpectedLambda,
-    FailedToApply,
+    FailedToApply(Exp, Exp),
 }
 
 fn is_value(e: &Exp) -> bool {
@@ -134,7 +134,7 @@ fn eval_app(
             let (e1, _) = step(Exp::List(es), module, gen)?;
             Ok((Exp::Apply(Box::new(e1), Box::new(e2)), true))
         }
-        _ => Err(EvalError::FailedToApply),
+        _ => Err(EvalError::FailedToApply(e1, e2)),
     }
 }
 
