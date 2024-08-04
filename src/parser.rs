@@ -149,13 +149,13 @@ impl Parser {
     pub fn parse_exp(&mut self) -> Result<Exp, ParseError> {
         let token = self.next_token()?;
         match token.kind {
+            TokenKind::Quote => Ok(quote(self.parse_exp()?)),
             TokenKind::Integer(int) => Ok(integer(int)),
             TokenKind::String(s) => Ok(Exp::String(s)),
             TokenKind::Symbol(sym) => match sym.as_str() {
                 "nil" => Ok(nil()),
                 "false" => Ok(bool(false)),
                 "true" => Ok(bool(true)),
-                "'" => Ok(quote(self.parse_exp()?)),
                 sym => Ok(symbol(sym)),
             },
             TokenKind::LParen => match self.lexer.peek_token().map(|t| t.kind) {
@@ -275,6 +275,9 @@ mod tests {
                 ])
             ])))
         );
+
+        let mut parser = Parser::new("'quit");
+        assert_eq!(parser.parse_exp(), Ok(quote(symbol("quit"))));
     }
 
     #[test]

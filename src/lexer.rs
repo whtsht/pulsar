@@ -177,6 +177,11 @@ impl Lexer {
         }
 
         match self.input[self.pos] {
+            '\'' => {
+                let loc = self.loc;
+                self.inc()?;
+                Ok(Token::new(TokenKind::Quote, loc))
+            }
             '(' => {
                 let loc = self.loc;
                 self.inc()?;
