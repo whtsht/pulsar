@@ -90,8 +90,13 @@ fn cons(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Ex
     Ok(Exp::List(list))
 }
 
-fn list(args: &[Exp], _: &Module, _: &mut VariableGenerator) -> Result<Exp, EvalError> {
-    Ok(Exp::List(args.to_vec()))
+fn list(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
+    let args = args
+        .to_vec()
+        .into_iter()
+        .map(|exp| eval(exp, module, gen))
+        .collect::<Result<_, _>>()?;
+    Ok(Exp::List(args))
 }
 
 fn first(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
@@ -283,6 +288,9 @@ mod tests {
             eval_default_module(e),
             Ok(list(&[integer(1), integer(2), integer(3)]))
         );
+        // (list (+ 1 2)) => (3)
+        let e = list(&[symbol("list"), list(&[symbol("+"), integer(1), integer(2)])]);
+        assert_eq!(eval_default_module(e), Ok(list(&[integer(3)])));
     }
 
     #[test]

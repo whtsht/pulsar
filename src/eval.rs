@@ -561,7 +561,6 @@ mod test {
         (define test (a b c d) (+ (* a b) (* c d)))
         "#;
         let module = load_module("test", source).unwrap();
-        println!("{:?}", module.get("test"));
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
         assert_eq!(
             module.run("test", vec![integer(2), integer(5), integer(1), integer(3)]),
