@@ -107,7 +107,11 @@ impl Parser {
 
     pub fn parse_if(&mut self) -> Result<Exp, ParseError> {
         self.lexer.skip_token();
-        Ok(if_(self.parse_exp()?, self.parse_exp()?, self.parse_exp()?))
+        let cond = self.parse_exp()?;
+        let then = self.parse_exp()?;
+        let else_ = self.parse_exp()?;
+        self.parse_right_param()?;
+        Ok(if_(cond, then, else_))
     }
 
     pub fn parse_let(&mut self) -> Result<Exp, ParseError> {
