@@ -29,7 +29,7 @@ fn main() {
         };
 
         match eval::eval_default_module(ast) {
-            Ok(result) => println!("\n==> {}", result),
+            Ok(result) => println!("=> {}\n", result),
             Err(e) => {
                 println!("{:?}", e);
                 continue;
