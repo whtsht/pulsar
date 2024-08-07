@@ -156,6 +156,69 @@ fn println(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result
     Ok(Exp::Nil)
 }
 
+fn string_append(
+    args: &[Exp],
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<Exp, EvalError> {
+    let (lhs, rhs) = parse_binary(args, module, gen)?;
+    let lhs = lhs
+        .as_string()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    let rhs = rhs
+        .as_string()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::String(format!("{}{}", lhs, rhs)))
+}
+
+fn string_head(
+    args: &[Exp],
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<Exp, EvalError> {
+    let exp = parse_unary(args, module, gen)?;
+    let s = exp
+        .as_string()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::String(s.chars().take(1).collect()))
+}
+
+fn string_tail(
+    args: &[Exp],
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<Exp, EvalError> {
+    let exp = parse_unary(args, module, gen)?;
+    let s = exp
+        .as_string()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::String(s.chars().skip(1).collect()))
+}
+
+fn string_init(
+    args: &[Exp],
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<Exp, EvalError> {
+    let exp = parse_unary(args, module, gen)?;
+    let s = exp
+        .as_string()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::String(s.chars().take(s.len() - 1).collect()))
+}
+
+fn string_last(
+    args: &[Exp],
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<Exp, EvalError> {
+    let exp = parse_unary(args, module, gen)?;
+    let s = exp
+        .as_string()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::String(s.chars().rev().take(1).collect()))
+}
+
 fn insert_binary_curry_op(
     func: fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>,
     func_name: &str,
@@ -205,6 +268,12 @@ pub fn default_module() -> Module {
 
     insert_buildin(print, "print", &mut module);
     insert_buildin(println, "println", &mut module);
+
+    insert_binary_curry_op(string_append, "string-append", &mut module);
+    insert_buildin(string_head, "string-head", &mut module);
+    insert_buildin(string_tail, "string-tail", &mut module);
+    insert_buildin(string_init, "string-init", &mut module);
+    insert_buildin(string_last, "string-last", &mut module);
 
     module
 }
@@ -336,5 +405,40 @@ mod tests {
             ])),
         ]);
         assert_eq!(eval_default_module(e), Ok(integer(6)));
+    }
+
+    #[test]
+    fn test_string_append() {
+        // (string-append "abc" "def") => "abcdef"
+        let e = list(&[symbol("string-append"), string("abc"), string("def")]);
+        assert_eq!(eval_default_module(e), Ok(string("abcdef")));
+    }
+
+    #[test]
+    fn test_string_head() {
+        // (string-head "abc") => "a"
+        let e = list(&[symbol("string-head"), string("abc")]);
+        assert_eq!(eval_default_module(e), Ok(string("a")));
+    }
+
+    #[test]
+    fn test_string_tail() {
+        // (string-tail "abc") => "bc"
+        let e = list(&[symbol("string-tail"), string("abc")]);
+        assert_eq!(eval_default_module(e), Ok(string("bc")));
+    }
+
+    #[test]
+    fn test_string_init() {
+        // (string-init "abc") => "ab"
+        let e = list(&[symbol("string-init"), string("abc")]);
+        assert_eq!(eval_default_module(e), Ok(string("ab")));
+    }
+
+    #[test]
+    fn test_string_last() {
+        // (string-last "abc") => "c"
+        let e = list(&[symbol("string-last"), string("abc")]);
+        assert_eq!(eval_default_module(e), Ok(string("c")));
     }
 }
