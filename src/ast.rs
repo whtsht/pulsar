@@ -6,6 +6,7 @@ use crate::eval::{EvalError, VariableGenerator};
 pub struct Module {
     pub name: String,
     pub defines: HashMap<String, Exp>,
+    pub macros: HashMap<String, Exp>,
 }
 
 impl Module {
@@ -13,6 +14,7 @@ impl Module {
         Module {
             name: name.to_string(),
             defines: HashMap::new(),
+            macros: HashMap::new(),
         }
     }
 

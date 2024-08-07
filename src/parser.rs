@@ -177,9 +177,6 @@ impl Parser {
     }
 
     pub fn parse_def(&mut self) -> Result<(String, Exp), ParseError> {
-        self.parse_left_param()?;
-        self.parse_special_symbol("define")?;
-
         let name = self.parse_symbol()?;
 
         self.parse_left_param()?;
@@ -197,28 +194,38 @@ impl Parser {
         Ok((name, exp))
     }
 
-    pub fn parse_defines(&mut self) -> Result<Vec<(String, Exp)>, ParseError> {
-        let mut defines = Vec::new();
+    pub fn parse_defines_or_macros(
+        &mut self,
+    ) -> Result<(Vec<(String, Exp)>, Vec<(String, Exp)>), ParseError> {
+        let mut defines = vec![];
+        let mut macros = vec![];
         while let Ok(token) = self.lexer.peek_token() {
             if token.kind == TokenKind::RParen {
                 break;
             }
-            defines.push(self.parse_def()?);
+            self.parse_left_param()?;
+
+            match self.next_token()?.as_symbol() {
+                Some("define") => defines.push(self.parse_def()?),
+                Some("macro") => macros.push(self.parse_def()?),
+                _ => return Err(ParseError::ExpectedSymbol(token)),
+            }
         }
-        Ok(defines)
+        Ok((defines, macros))
     }
 
-    pub fn parse_module(&mut self) -> Result<(String, Vec<(String, Exp)>), ParseError> {
+    pub fn parse_module(
+        &mut self,
+    ) -> Result<(String, Vec<(String, Exp)>, Vec<(String, Exp)>), ParseError> {
         self.parse_left_param()?;
         self.parse_special_symbol("module")?;
 
         let module_name = self.parse_symbol()?;
-
-        let defines = self.parse_defines()?;
+        let (defines, macros) = self.parse_defines_or_macros()?;
 
         self.parse_right_param()?;
 
-        Ok((module_name, defines))
+        Ok((module_name, defines, macros))
     }
 }
 
@@ -368,22 +375,18 @@ mod tests {
                         lambda("x", list(&vec![symbol("+"), integer(2), integer(4)]))
                     ),
                     ("bar".to_string(), integer(2))
-                ]
+                ],
+                vec![]
             ))
         );
-    }
 
-    #[test]
-    fn test_parse_multi_args() {
-        let mut parser = Parser::new("(define test (a b c d e) c)");
+        let mut parser = Parser::new("(module test (macro id (x) x))");
         assert_eq!(
-            parser.parse_def(),
+            parser.parse_module(),
             Ok((
                 "test".to_string(),
-                lambda(
-                    "a",
-                    lambda("b", lambda("c", lambda("d", lambda("e", symbol("c")))))
-                )
+                vec![],
+                vec![("id".to_string(), lambda("x", symbol("x")))]
             ))
         );
     }

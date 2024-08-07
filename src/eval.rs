@@ -556,11 +556,12 @@ mod test {
     }
 
     #[test]
-    fn test_load_func_with_arg() {
+    fn test_run_func_with_arg() {
         let source = r#"
-        (define test (a b c d) (+ (* a b) (* c d)))
+        (module test
+            (define test (a b c d) (+ (* a b) (* c d))))
         "#;
-        let module = load_module("test", source).unwrap();
+        let module = load_module(source).unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
         assert_eq!(
             module.run("test", vec![integer(2), integer(5), integer(1), integer(3)]),
