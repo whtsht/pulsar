@@ -10,6 +10,7 @@ pub enum EvalError {
     ExpectedBool(Exp),
     ExpectedLambda(Exp),
     FailedToApply(Exp, Exp),
+    NeverMatched(Exp),
 }
 
 fn is_value(e: &Exp) -> bool {
@@ -206,19 +207,16 @@ fn step(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<(Exp, 
             Ok((apply(lambda(&sym, *exp), *body), true))
         }
         Exp::Case(e, cases) => {
-            if is_value(&e) {
-                for (cond, body) in cases {
-                    if let Exp::Symbol(sym) = &cond {
-                        return Ok((subst(*e, sym.clone(), body, gen), true));
-                    }
-                    if *e == cond {
-                        return Ok((body, true));
-                    }
+            let e = eval(*e, module, gen)?;
+            for (cond, body) in cases {
+                if let Exp::Symbol(sym) = &cond {
+                    return Ok((subst(e, sym.clone(), body, gen), false));
                 }
-                todo!()
-            } else {
-                Ok((step(*e, module, gen)?.0, true))
+                if e == cond {
+                    return Ok((body, false));
+                }
             }
+            Err(EvalError::NeverMatched(e))
         }
         Exp::Quote(e) => Ok((eval_unquote(*e, module, gen)?, false)),
         Exp::UnQuote(_) => unreachable!("eval unquote"),
@@ -277,26 +275,16 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
     }
 }
 
-pub fn eval_empty_module(mut exp: Exp) -> Result<Exp, EvalError> {
+pub fn eval_empty_module(exp: Exp) -> Result<Exp, EvalError> {
     let mut gen = VariableGenerator::new();
-    loop {
-        match step(exp, &Module::new("empty"), &mut gen) {
-            Ok((exp_next, true)) => exp = exp_next,
-            Ok((exp_next, false)) => return Ok(exp_next),
-            Err(err) => return Err(err),
-        }
-    }
+    let module = Module::new("empty");
+    eval(exp, &module, &mut gen)
 }
 
-pub fn eval_default_module(mut exp: Exp) -> Result<Exp, EvalError> {
+pub fn eval_default_module(exp: Exp) -> Result<Exp, EvalError> {
     let mut gen = VariableGenerator::new();
-    loop {
-        match step(exp, &default_module(), &mut gen) {
-            Ok((exp_next, true)) => exp = exp_next,
-            Ok((exp_next, false)) => return Ok(exp_next),
-            Err(err) => return Err(err),
-        }
-    }
+    let module = default_module();
+    eval(exp, &module, &mut gen)
 }
 
 pub fn eval(mut exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
@@ -603,12 +591,20 @@ mod test {
         );
         assert_eq!(eval_empty_module(e), Ok(string("other")));
 
+        // (case (first '(1 2)) (_ 2)))
+        // => 2
+        let e = case(
+            list(&[symbol("first"), quote(list(&[integer(1), integer(2)]))]),
+            &[(symbol("_"), integer(2))],
+        );
+        assert_eq!(eval_default_module(e), Ok(integer(2)));
+
         // (case 3
         //   (1 "one")
         //   (2 "two")
         //   (x (+ x 1))
         // )
-        // => 4
+        // => (+ 3 1)
         let e = case(
             integer(3),
             &[
@@ -617,7 +613,10 @@ mod test {
                 (symbol("x"), list(&[symbol("+"), symbol("x"), integer(1)])),
             ],
         );
-        assert_eq!(eval_default_module(e), Ok(integer(4)));
+        assert_eq!(
+            eval_default_module(e),
+            Ok(list(&[symbol("+"), integer(3), integer(1)]))
+        );
 
         // (case 3
         //   (1 "one")
@@ -633,6 +632,10 @@ mod test {
             ],
         );
         assert_eq!(eval_empty_module(e), Ok(integer(3)));
+
+        // (case 'a (b b)) => a
+        let e = case(quote(symbol("a")), &[(symbol("b"), symbol("b"))]);
+        assert_eq!(eval_empty_module(e), Ok(symbol("a")));
     }
 
     #[test]
