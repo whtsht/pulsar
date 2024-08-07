@@ -91,11 +91,55 @@ fn subst(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
                 })
                 .collect(),
         ),
-        Exp::Quote(_) => e1,
+        Exp::Quote(e11) => Exp::Quote(Box::new(subst_unquote(e2, x, *e11, gen))),
+        Exp::UnQuote(_) => unreachable!("subst unquote"),
         Exp::List(list) => Exp::List(
             list.into_iter()
                 .map(|e| subst(e2.clone(), x.clone(), e, gen))
                 .collect(),
+        ),
+    }
+}
+
+fn subst_unquote(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
+    match e1 {
+        Exp::Nil
+        | Exp::Bool(_)
+        | Exp::Integer(_)
+        | Exp::String(_)
+        | Exp::Symbol(_)
+        | Exp::BuildIn(_) => e1,
+        Exp::List(es) => list(
+            &es.into_iter()
+                .map(|e| subst_unquote(e2.clone(), x.clone(), e, gen))
+                .collect::<Vec<_>>(),
+        ),
+        Exp::Lambda(s, e) => lambda(&s, subst_unquote(e2, x, *e, gen)),
+        Exp::Apply(e1, e2) => apply(
+            subst_unquote(*e2.clone(), x.clone(), *e1, gen),
+            subst_unquote(*e2.clone(), x, *e2, gen),
+        ),
+        Exp::If(c, t, e) => if_(
+            subst_unquote(e2.clone(), x.clone(), *c, gen),
+            subst_unquote(e2.clone(), x.clone(), *t, gen),
+            subst_unquote(e2, x, *e, gen),
+        ),
+        Exp::Quote(e) => *e,
+        Exp::UnQuote(e11) => unquote(subst(e2, x, *e11, gen)),
+        Exp::Let((s, b), e) => let_(
+            (&s, subst_unquote(e2.clone(), x.clone(), *b, gen)),
+            subst_unquote(e2, x, *e, gen),
+        ),
+        Exp::Case(c, es) => case(
+            subst_unquote(e2.clone(), x.clone(), *c, gen),
+            &es.into_iter()
+                .map(|(c, e)| {
+                    (
+                        subst_unquote(e2.clone(), x.clone(), c, gen),
+                        subst_unquote(e2.clone(), x.clone(), e, gen),
+                    )
+                })
+                .collect::<Vec<_>>(),
         ),
     }
 }
@@ -176,7 +220,8 @@ fn step(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<(Exp, 
                 Ok((step(*e, module, gen)?.0, true))
             }
         }
-        Exp::Quote(e) => Ok((*e, false)),
+        Exp::Quote(e) => Ok((eval_unquote(*e, module, gen)?, false)),
+        Exp::UnQuote(_) => unreachable!("eval unquote"),
         Exp::List(list) => {
             if let Some((head, tail)) = list.split_first() {
                 let head = eval(head.clone(), module, gen)?;
@@ -194,6 +239,41 @@ fn step(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<(Exp, 
                 Ok((Exp::Nil, false))
             }
         }
+    }
+}
+
+fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
+    match exp {
+        Exp::Nil
+        | Exp::Bool(_)
+        | Exp::Integer(_)
+        | Exp::String(_)
+        | Exp::Symbol(_)
+        | Exp::BuildIn(_)
+        | Exp::Quote(_) => Ok(exp),
+        Exp::List(es) => Ok(Exp::List(
+            es.into_iter()
+                .map(|e| eval_unquote(e, module, gen))
+                .collect::<Result<_, _>>()?,
+        )),
+        Exp::Lambda(s, e) => Ok(lambda(&s, eval_unquote(*e, module, gen)?)),
+        Exp::Apply(e1, e2) => Ok(apply(
+            eval_unquote(*e1, module, gen)?,
+            eval_unquote(*e2, module, gen)?,
+        )),
+        Exp::If(c, t, e) => Ok(if_(
+            eval_unquote(*c, module, gen)?,
+            eval_unquote(*t, module, gen)?,
+            eval_unquote(*e, module, gen)?,
+        )),
+        Exp::UnQuote(e) => eval(*e, module, gen),
+        Exp::Let((s, b), e) => Ok(let_((&s, *b), eval_unquote(*e, module, gen)?)),
+        Exp::Case(c, es) => Ok(case(
+            eval_unquote(*c, module, gen)?,
+            &es.into_iter()
+                .map(|(c, e)| Ok((eval_unquote(c, module, gen)?, eval_unquote(e, module, gen)?)))
+                .collect::<Result<Vec<_>, EvalError>>()?,
+        )),
     }
 }
 
@@ -566,6 +646,51 @@ mod test {
         assert_eq!(
             module.run("test", vec![integer(2), integer(5), integer(1), integer(3)]),
             Ok(integer(13))
+        );
+    }
+
+    #[test]
+    fn test_unquote() {
+        let source = r#"
+        (module test
+            (define test () '(a ~(+ 1 2))))
+        "#;
+        let module = load_module(source).unwrap();
+        assert_eq!(module.defines.len(), default_module().defines.len() + 1);
+        assert_eq!(
+            module.run("test", vec![]),
+            Ok(list(&[symbol("a"), integer(3)]))
+        );
+
+        let source = r#"
+        (module test
+            (define test (a) '(a ~a)))
+        "#;
+        let module = load_module(source).unwrap();
+        assert_eq!(module.defines.len(), default_module().defines.len() + 1);
+        assert_eq!(
+            module.run("test", vec![integer(1)]),
+            Ok(list(&[symbol("a"), integer(1)]))
+        );
+
+        // '(a '(b ~(+ 1 2)))
+        // => (a '(b ~(+ 1 2)))
+        let e = quote(list(&[
+            symbol("a"),
+            quote(list(&[
+                symbol("b"),
+                unquote(list(&[symbol("+"), integer(1), integer(2)])),
+            ])),
+        ]));
+        assert_eq!(
+            eval_empty_module(e),
+            Ok(list(&[
+                symbol("a"),
+                quote(list(&[
+                    symbol("b"),
+                    unquote(list(&[symbol("+"), integer(1), integer(2)]))
+                ]))
+            ]))
         );
     }
 }

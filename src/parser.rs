@@ -154,6 +154,7 @@ impl Parser {
         let token = self.next_token()?;
         match token.kind {
             TokenKind::Quote => Ok(quote(self.parse_exp()?)),
+            TokenKind::UnQuote => Ok(unquote(self.parse_exp()?)),
             TokenKind::Integer(int) => Ok(integer(int)),
             TokenKind::String(s) => Ok(Exp::String(s)),
             TokenKind::Symbol(sym) => match sym.as_str() {
@@ -289,6 +290,16 @@ mod tests {
 
         let mut parser = Parser::new("'quit");
         assert_eq!(parser.parse_exp(), Ok(quote(symbol("quit"))));
+
+        let mut parser = Parser::new("'(a b ~c)");
+        assert_eq!(
+            parser.parse_exp(),
+            Ok(quote(list(&vec![
+                symbol("a"),
+                symbol("b"),
+                unquote(symbol("c"))
+            ])))
+        );
     }
 
     #[test]

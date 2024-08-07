@@ -39,6 +39,7 @@ pub enum TokenKind {
     Symbol(String),
     String(String),
     Quote,
+    UnQuote,
 }
 
 fn separator(ch: char) -> bool {
