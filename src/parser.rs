@@ -127,6 +127,7 @@ impl Parser {
 
         let exp = self.parse_exp()?;
 
+        self.parse_right_param()?;
         Ok(let_(bind, exp))
     }
 
@@ -146,6 +147,7 @@ impl Parser {
         while let Ok(TokenKind::LParen) = self.lexer.peek_token().map(|t| t.kind) {
             cases.push(self.parse_one_case()?);
         }
+        self.parse_right_param()?;
 
         Ok(case(exp, &cases))
     }
