@@ -403,4 +403,31 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn test_comment() {
+        let mut parser = Parser::new(
+            r#"(module main ; comment
+            ; comment 
+            (define foo (x) (+ 2 4)) ; comment
+            ; comment
+            (define bar () ; comment
+             ; comment
+             2))"#,
+        );
+        assert_eq!(
+            parser.parse_module(),
+            Ok((
+                "main".to_string(),
+                vec![
+                    (
+                        "foo".to_string(),
+                        lambda("x", list(&vec![symbol("+"), integer(2), integer(4)]))
+                    ),
+                    ("bar".to_string(), integer(2))
+                ],
+                vec![]
+            ))
+        );
+    }
 }

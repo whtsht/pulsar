@@ -177,6 +177,13 @@ impl Lexer {
         }
 
         match self.input[self.pos] {
+            ';' => {
+                while self.current_char()? != '\n' {
+                    self.inc()?;
+                }
+                self.inc()?;
+                self.next_token()
+            }
             '\'' => {
                 let loc = self.loc;
                 self.inc()?;
