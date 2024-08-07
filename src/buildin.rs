@@ -219,6 +219,18 @@ fn string_last(
     Ok(Exp::String(s.chars().rev().take(1).collect()))
 }
 
+fn symbol_to_string(
+    args: &[Exp],
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<Exp, EvalError> {
+    let exp = parse_unary(args, module, gen)?;
+    let s = exp
+        .as_symbol()
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::String(s.to_string()))
+}
+
 fn insert_binary_curry_op(
     func: fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>,
     func_name: &str,
@@ -275,6 +287,7 @@ pub fn default_module() -> Module {
     insert_buildin(string_init, "string-init", &mut module);
     insert_buildin(string_last, "string-last", &mut module);
 
+    insert_buildin(symbol_to_string, "symbol->string", &mut module);
     module
 }
 
@@ -440,5 +453,12 @@ mod tests {
         // (string-last "abc") => "c"
         let e = list(&[symbol("string-last"), string("abc")]);
         assert_eq!(eval_default_module(e), Ok(string("c")));
+    }
+
+    #[test]
+    fn test_symbol_to_string() {
+        // (symbol->string 'abc) => "abc"
+        let e = list(&[symbol("symbol->string"), quote(symbol("abc"))]);
+        assert_eq!(eval_default_module(e), Ok(string("abc")));
     }
 }
