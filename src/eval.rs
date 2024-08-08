@@ -11,6 +11,7 @@ pub enum EvalError {
     ExpectedLambda(Exp),
     FailedToApply(Exp, Exp),
     NeverMatched(Exp),
+    UnquoteOutsideQuote(Exp),
 }
 
 pub type Result<T> = std::result::Result<T, EvalError>;
@@ -134,7 +135,7 @@ fn eval_app(e1: Exp, e2: Exp, module: &Module, gen: &mut VariableGenerator) -> R
             }
         }
         Exp::Symbol(sym) => {
-            if let Some(e1) = module.get(&sym) {
+            if let Some(e1) = module.defines.get(&sym) {
                 eval_app(e1.clone(), e2, module, gen)
             } else {
                 Err(EvalError::SymbolNotFound(sym))
@@ -157,8 +158,10 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
     match exp.clone() {
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => Ok(exp),
         Exp::Symbol(sym) => {
-            if let Some(e) = module.get(&sym) {
+            if let Some(e) = module.defines.get(&sym) {
                 Ok(e.clone())
+            } else if let Some(_) = module.macros.get(&sym) {
+                Ok(exp)
             } else {
                 Err(EvalError::SymbolNotFound(sym))
             }
@@ -175,10 +178,29 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
             eval(apply(lambda(&sym, *exp), *body), module, gen)
         }
         Exp::Quote(e) => eval_unquote(*e, module, gen),
-        Exp::UnQuote(_) => unreachable!("eval unquote"),
+        Exp::UnQuote(e) => Err(EvalError::UnquoteOutsideQuote(*e)),
         Exp::List(list) => {
             if let Some((head, tail)) = list.split_first() {
                 let head = eval(head.clone(), module, gen)?;
+
+                if let Some(sym) = head.as_symbol() {
+                    if let Some((mut macro_, args)) = module.macros.get(sym).cloned() {
+                        if args.len() == tail.len() {
+                            for (arg, exp) in args.iter().zip(tail.iter()) {
+                                if let Some(arg) = arg.as_symbol() {
+                                    macro_ =
+                                        subst(quote(exp.clone()), arg.to_string(), macro_, gen);
+                                } else {
+                                    return Err(EvalError::InvalidArgs(tail.to_vec()));
+                                }
+                            }
+                            let expanded = eval(macro_, module, gen)?;
+                            return eval(expanded, module, gen);
+                        } else {
+                            return Err(EvalError::InvalidArgs(tail.to_vec()));
+                        }
+                    }
+                }
 
                 if let Exp::BuildIn(f) = head {
                     let args = tail.to_vec();
@@ -225,6 +247,22 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
     }
 }
 
+pub fn eval_macro(macro_: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
+    match macro_ {
+        Exp::Lambda(param, body) => Ok(Exp::Lambda(param, body)),
+        Exp::List(es) => {
+            let mut es = es.into_iter().map(|e| eval_macro(e, module, gen));
+            let head = es.next().ok_or(EvalError::NeverMatched(Exp::Nil))?;
+            let head = head?;
+            let tail = es.collect::<Result<Vec<_>>>()?;
+            Ok(Exp::List(
+                [head].iter().chain(tail.iter()).cloned().collect(),
+            ))
+        }
+        _ => Ok(macro_),
+    }
+}
+
 pub fn eval_empty_module(exp: Exp) -> Result<Exp> {
     let mut gen = VariableGenerator::new();
     let module = Module::new("empty");
@@ -240,6 +278,7 @@ pub fn eval_default_module(exp: Exp) -> Result<Exp> {
 impl Module {
     pub fn run(&self, name: &str, args: Vec<Exp>) -> Result<Exp> {
         let mut exp = self
+            .defines
             .get(name)
             .cloned()
             .ok_or_else(|| EvalError::SymbolNotFound(name.to_string()))?;
@@ -488,5 +527,22 @@ mod test {
                 ]))
             ]))
         );
+    }
+
+    #[test]
+    fn test_macro() {
+        let source = r#"
+        (module test
+            (macro unless (cond then else) '(if ~cond ~else ~then))
+            (macro and (a b) '(if ~a ~b ~a))
+            (macro or (a b) '(if ~a ~a ~b))
+            (define test1 () (unless (= 1 1) (/ 1 0) 'b))
+            (define test2 () (and false (/ 1 0)))
+            (define test3 () (or true (/ 1 0))))"#;
+        let module = load_module(source).unwrap();
+        assert_eq!(module.defines.len(), default_module().defines.len() + 3);
+        assert_eq!(module.run("test1", vec![]), Ok(symbol("b")));
+        assert_eq!(module.run("test2", vec![]), Ok(bool(false)));
+        assert_eq!(module.run("test3", vec![]), Ok(bool(true)));
     }
 }

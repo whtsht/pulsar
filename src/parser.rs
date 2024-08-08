@@ -183,9 +183,22 @@ impl Parser {
         Ok((name, exp))
     }
 
+    pub fn parse_macro(&mut self) -> Result<(String, Exp, Vec<Exp>), ParseError> {
+        let name = self.parse_symbol()?;
+
+        self.parse_left_param()?;
+        let args = self.parse_exps()?;
+
+        let body = self.parse_exp()?;
+
+        self.parse_right_param()?;
+
+        Ok((name, body, args))
+    }
+
     pub fn parse_defines_or_macros(
         &mut self,
-    ) -> Result<(Vec<(String, Exp)>, Vec<(String, Exp)>), ParseError> {
+    ) -> Result<(Vec<(String, Exp)>, Vec<(String, Exp, Vec<Exp>)>), ParseError> {
         let mut defines = vec![];
         let mut macros = vec![];
         while let Ok(token) = self.lexer.peek_token() {
@@ -196,7 +209,7 @@ impl Parser {
 
             match self.next_token()?.as_symbol() {
                 Some("define") => defines.push(self.parse_def()?),
-                Some("macro") => macros.push(self.parse_def()?),
+                Some("macro") => macros.push(self.parse_macro()?),
                 _ => return Err(ParseError::ExpectedSymbol(token)),
             }
         }
@@ -205,7 +218,7 @@ impl Parser {
 
     pub fn parse_module(
         &mut self,
-    ) -> Result<(String, Vec<(String, Exp)>, Vec<(String, Exp)>), ParseError> {
+    ) -> Result<(String, Vec<(String, Exp)>, Vec<(String, Exp, Vec<Exp>)>), ParseError> {
         self.parse_left_param()?;
         self.parse_special_symbol("module")?;
 
@@ -362,16 +375,6 @@ mod tests {
                 vec![]
             ))
         );
-
-        let mut parser = Parser::new("(module test (macro id (x) x))");
-        assert_eq!(
-            parser.parse_module(),
-            Ok((
-                "test".to_string(),
-                vec![],
-                vec![("id".to_string(), lambda("x", symbol("x")))]
-            ))
-        );
     }
 
     #[test]
@@ -397,6 +400,33 @@ mod tests {
                     ("bar".to_string(), integer(2))
                 ],
                 vec![]
+            ))
+        );
+    }
+
+    #[test]
+    fn test_macro() {
+        let mut parser = Parser::new(
+            r#"
+            (module test
+              (macro unless (cond then else)
+                '(if ~cond ~else ~then)))"#,
+        );
+
+        assert_eq!(
+            parser.parse_module(),
+            Ok((
+                "test".to_string(),
+                vec![],
+                vec![(
+                    "unless".to_string(),
+                    quote(if_(
+                        unquote(symbol("cond")),
+                        unquote(symbol("else")),
+                        unquote(symbol("then"))
+                    ),),
+                    vec![symbol("cond"), symbol("then"), symbol("else")],
+                )]
             ))
         );
     }

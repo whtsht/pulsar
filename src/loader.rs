@@ -28,11 +28,11 @@ pub fn load_module(source: &str) -> Result<Module> {
         defines.insert(name, exp);
     }
 
-    for (name, exp) in module.2.into_iter() {
+    for (name, exp, args_count) in module.2.into_iter() {
         if macros.contains_key(&name) {
             return Err(LoadError::DuplicateDefinition(name));
         }
-        macros.insert(name, exp);
+        macros.insert(name, (exp, args_count));
     }
 
     Ok(Module {

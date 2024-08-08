@@ -6,7 +6,7 @@ use crate::eval::{EvalError, VariableGenerator};
 pub struct Module {
     pub name: String,
     pub defines: HashMap<String, Exp>,
-    pub macros: HashMap<String, Exp>,
+    pub macros: HashMap<String, (Exp, Vec<Exp>)>,
 }
 
 impl Module {
@@ -16,14 +16,6 @@ impl Module {
             defines: HashMap::new(),
             macros: HashMap::new(),
         }
-    }
-
-    pub fn get(&self, name: &str) -> Option<&Exp> {
-        self.defines.get(name)
-    }
-
-    pub fn set(&mut self, name: &str, exp: Exp) {
-        self.defines.insert(name.to_string(), exp);
     }
 }
 
