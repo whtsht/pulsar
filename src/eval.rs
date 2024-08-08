@@ -74,24 +74,6 @@ fn subst(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
             let e1 = apply(lambda(&sym, *e), *body);
             subst(e2, x, e1, gen)
         }
-        Exp::Case(e, cases) => Exp::Case(
-            Box::new(subst(e2.clone(), x.clone(), *e, gen)),
-            cases
-                .into_iter()
-                .map(|(cond, body)| {
-                    if let Exp::Symbol(sym) = &cond {
-                        let var = gen.gen_var();
-                        let body = subst(symbol(&var), sym.clone(), body, gen);
-                        (symbol(&var), subst(e2.clone(), x.clone(), body, gen))
-                    } else {
-                        (
-                            subst(e2.clone(), x.clone(), cond, gen),
-                            subst(e2.clone(), x.clone(), body, gen),
-                        )
-                    }
-                })
-                .collect(),
-        ),
         Exp::Quote(e11) => Exp::Quote(Box::new(subst_unquote(e2, x, *e11, gen))),
         Exp::UnQuote(_) => unreachable!("subst unquote"),
         Exp::List(list) => Exp::List(
@@ -130,17 +112,6 @@ fn subst_unquote(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Ex
         Exp::Let((s, b), e) => let_(
             (&s, subst_unquote(e2.clone(), x.clone(), *b, gen)),
             subst_unquote(e2, x, *e, gen),
-        ),
-        Exp::Case(c, es) => case(
-            subst_unquote(e2.clone(), x.clone(), *c, gen),
-            &es.into_iter()
-                .map(|(c, e)| {
-                    (
-                        subst_unquote(e2.clone(), x.clone(), c, gen),
-                        subst_unquote(e2.clone(), x.clone(), e, gen),
-                    )
-                })
-                .collect::<Vec<_>>(),
         ),
     }
 }
@@ -205,18 +176,6 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
             let (sym, body) = bind;
             eval(apply(lambda(&sym, *exp), *body), module, gen)
         }
-        Exp::Case(e, cases) => {
-            let e = eval(*e, module, gen)?;
-            for (cond, body) in cases {
-                if let Exp::Symbol(sym) = &cond {
-                    return Ok(subst(e, sym.clone(), body, gen));
-                }
-                if e == cond {
-                    return Ok(body);
-                }
-            }
-            Err(EvalError::NeverMatched(e))
-        }
         Exp::Quote(e) => eval_unquote(*e, module, gen),
         Exp::UnQuote(_) => unreachable!("eval unquote"),
         Exp::List(list) => {
@@ -265,12 +224,6 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
         )),
         Exp::UnQuote(e) => eval(*e, module, gen),
         Exp::Let((s, b), e) => Ok(let_((&s, *b), eval_unquote(*e, module, gen)?)),
-        Exp::Case(c, es) => Ok(case(
-            eval_unquote(*c, module, gen)?,
-            &es.into_iter()
-                .map(|(c, e)| Ok((eval_unquote(c, module, gen)?, eval_unquote(e, module, gen)?)))
-                .collect::<Result<Vec<_>, EvalError>>()?,
-        )),
     }
 }
 
@@ -363,72 +316,6 @@ mod test {
             &mut VariableGenerator::new(),
         );
         assert_eq!(e, apply(lambda("#0", integer(2)), integer(1)));
-
-        // [2/x](case x ((1 1) (2 2) (_ 0)))
-        // => (case 2 ((1 1) (2 2) (#0 0)))
-        let e = subst(
-            integer(2),
-            "x".to_string(),
-            case(
-                symbol("x"),
-                &[
-                    (integer(1), integer(1)),
-                    (integer(2), integer(2)),
-                    (symbol("_"), integer(0)),
-                ],
-            ),
-            &mut VariableGenerator::new(),
-        );
-        assert_eq!(
-            e,
-            case(
-                integer(2),
-                &[
-                    (integer(1), integer(1)),
-                    (integer(2), integer(2)),
-                    (symbol("#0"), integer(0)),
-                ],
-            )
-        );
-
-        // [2/x](case 1 (1 x) 0)
-        // => (case 1 (1 2) 0)
-        let e = subst(
-            integer(2),
-            "x".to_string(),
-            case(integer(1), &[(integer(1), symbol("x"))]),
-            &mut VariableGenerator::new(),
-        );
-        assert_eq!(e, case(integer(1), &[(integer(1), integer(2))]));
-
-        // [2/x] (case 1 (x x))
-        // => (case 1 (#0 #0))
-        let e = subst(
-            integer(2),
-            "x".to_string(),
-            case(integer(1), &[(symbol("x"), symbol("x"))]),
-            &mut VariableGenerator::new(),
-        );
-        assert_eq!(e, case(integer(1), &[(symbol("#0"), symbol("#0"))],));
-
-        // [2/x] (case 1 (y (+ y x)))
-        // => (case 1 (#0 (+ #0 2)))
-        let e = subst(
-            integer(2),
-            "x".to_string(),
-            case(
-                integer(1),
-                &[(symbol("y"), list(&[symbol("+"), symbol("y"), symbol("x")]))],
-            ),
-            &mut VariableGenerator::new(),
-        );
-        assert_eq!(
-            e,
-            case(
-                integer(1),
-                &[(symbol("#0"), list(&[symbol("+"), symbol("#0"), integer(2)]))],
-            )
-        );
     }
 
     #[test]
@@ -544,87 +431,6 @@ mod test {
             ),
         );
         assert_eq!(eval_default_module(e), Ok(integer(2)));
-    }
-
-    #[test]
-    fn test_case() {
-        // (case 1
-        //   (1 "one")
-        //   (2 "two")
-        //   (_ "other")
-        // )
-        // => "one"
-        let e = case(
-            integer(1),
-            &[
-                (integer(1), string("one")),
-                (integer(2), string("two")),
-                (symbol("_"), string("other")),
-            ],
-        );
-        assert_eq!(eval_empty_module(e), Ok(string("one")));
-
-        // (case nil
-        //   (1 "one")
-        //   (2 "two")
-        //   (_ "other")
-        // )
-        // => "other"
-        let e = case(
-            integer(3),
-            &[
-                (integer(1), string("one")),
-                (integer(2), string("two")),
-                (symbol("_"), string("other")),
-            ],
-        );
-        assert_eq!(eval_empty_module(e), Ok(string("other")));
-
-        // (case (first '(1 2)) (_ 2)))
-        // => 2
-        let e = case(
-            list(&[symbol("first"), quote(list(&[integer(1), integer(2)]))]),
-            &[(symbol("_"), integer(2))],
-        );
-        assert_eq!(eval_default_module(e), Ok(integer(2)));
-
-        // (case 3
-        //   (1 "one")
-        //   (2 "two")
-        //   (x (+ x 1))
-        // )
-        // => (+ 3 1)
-        let e = case(
-            integer(3),
-            &[
-                (integer(1), string("one")),
-                (integer(2), string("two")),
-                (symbol("x"), list(&[symbol("+"), symbol("x"), integer(1)])),
-            ],
-        );
-        assert_eq!(
-            eval_default_module(e),
-            Ok(list(&[symbol("+"), integer(3), integer(1)]))
-        );
-
-        // (case 3
-        //   (1 "one")
-        //   (x x)
-        //   (_ "other")
-        // )
-        let e = case(
-            integer(3),
-            &[
-                (integer(1), string("one")),
-                (symbol("x"), symbol("x")),
-                (symbol("_"), string("other")),
-            ],
-        );
-        assert_eq!(eval_empty_module(e), Ok(integer(3)));
-
-        // (case 'a (b b)) => a
-        let e = case(quote(symbol("a")), &[(symbol("b"), symbol("b"))]);
-        assert_eq!(eval_empty_module(e), Ok(symbol("a")));
     }
 
     #[test]

@@ -41,7 +41,6 @@ pub enum Exp {
     Quote(Box<Exp>),
     UnQuote(Box<Exp>),
     Let((String, Box<Exp>), Box<Exp>),
-    Case(Box<Exp>, Vec<(Exp, Exp)>),
     BuildIn(fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>),
 }
 
@@ -111,16 +110,6 @@ impl Display for Exp {
             Exp::Quote(exp) => write!(f, "'{}", exp),
             Exp::UnQuote(exp) => write!(f, "~{}", exp),
             Exp::Let((bind, exp1), exp2) => write!(f, "(let ({} {}) {})", bind, exp1, exp2),
-            Exp::Case(cond, matchers) => write!(
-                f,
-                "(case {} {})",
-                cond,
-                matchers
-                    .iter()
-                    .map(|(match_, exp)| format!("({} {})", match_, exp))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            ),
             Exp::BuildIn(_) => write!(f, "#buildin",),
         }
     }
@@ -164,10 +153,6 @@ pub fn if_(cond: Exp, then: Exp, else_: Exp) -> Exp {
 
 pub fn let_(bind: (&str, Exp), exp: Exp) -> Exp {
     Exp::Let((bind.0.to_string(), Box::new(bind.1)), Box::new(exp))
-}
-
-pub fn case(exp: Exp, cases: &[(Exp, Exp)]) -> Exp {
-    Exp::Case(Box::new(exp), cases.to_vec())
 }
 
 pub fn quote(e: Exp) -> Exp {

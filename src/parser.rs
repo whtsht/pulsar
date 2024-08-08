@@ -139,19 +139,6 @@ impl Parser {
         Ok((key, value))
     }
 
-    pub fn parse_cases(&mut self) -> Result<Exp, ParseError> {
-        self.lexer.skip_token();
-
-        let exp = self.parse_exp()?;
-        let mut cases = Vec::new();
-        while let Ok(TokenKind::LParen) = self.lexer.peek_token().map(|t| t.kind) {
-            cases.push(self.parse_one_case()?);
-        }
-        self.parse_right_param()?;
-
-        Ok(case(exp, &cases))
-    }
-
     pub fn parse_exp(&mut self) -> Result<Exp, ParseError> {
         let token = self.next_token()?;
         match token.kind {
@@ -170,7 +157,6 @@ impl Parser {
                     "\\" => self.parse_lambda(),
                     "if" => self.parse_if(),
                     "let" => self.parse_let(),
-                    "case" => self.parse_cases(),
                     _ => Ok(list(&self.parse_exps()?)),
                 },
                 _ => Ok(list(&self.parse_exps()?)),
@@ -333,22 +319,6 @@ mod tests {
                     ("y", integer(2)),
                     list(&vec![symbol("+"), symbol("x"), symbol("y")])
                 )
-            ))
-        );
-    }
-
-    #[test]
-    fn test_parse_case() {
-        let mut parser = Parser::new("(case 1 (1 2) (2 3) (_ 0))");
-        assert_eq!(
-            parser.parse_exp(),
-            Ok(case(
-                integer(1),
-                &vec![
-                    (integer(1), integer(2)),
-                    (integer(2), integer(3)),
-                    (symbol("_"), integer(0))
-                ]
             ))
         );
     }

@@ -1,3 +1,5 @@
+use std::ops::Not;
+
 use crate::{
     ast::{self, apply, Exp, Module},
     eval::{eval, EvalError, VariableGenerator},
@@ -138,7 +140,7 @@ fn nth(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp
 
 fn is_atom(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     let exp = parse_unary(args, module, gen)?;
-    Ok(ast::bool(matches!(exp, Exp::List(_))))
+    Ok(ast::bool(matches!(exp, Exp::List(_)).not()))
 }
 
 fn print(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
