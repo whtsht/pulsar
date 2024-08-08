@@ -13,6 +13,8 @@ pub enum EvalError {
     NeverMatched(Exp),
 }
 
+pub type Result<T> = std::result::Result<T, EvalError>;
+
 fn is_value(e: &Exp) -> bool {
     matches!(
         e,
@@ -116,12 +118,7 @@ fn subst_unquote(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Ex
     }
 }
 
-fn eval_app(
-    e1: Exp,
-    e2: Exp,
-    module: &Module,
-    gen: &mut VariableGenerator,
-) -> Result<Exp, EvalError> {
+fn eval_app(e1: Exp, e2: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
     match e1 {
         Exp::Lambda(x, e11) => {
             if is_value(&e2) {
@@ -151,11 +148,12 @@ fn eval_app(
             let e1 = eval(Exp::List(es), module, gen)?;
             eval(Exp::Apply(Box::new(e1), Box::new(e2)), module, gen)
         }
+        Exp::BuildIn(f) => f(&[e2], module, gen),
         _ => Err(EvalError::FailedToApply(e1, e2)),
     }
 }
 
-pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
+pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
     match exp.clone() {
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => Ok(exp),
         Exp::Symbol(sym) => {
@@ -198,7 +196,7 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
     }
 }
 
-fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
+fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
     match exp {
         Exp::Nil
         | Exp::Bool(_)
@@ -210,7 +208,7 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
         Exp::List(es) => Ok(Exp::List(
             es.into_iter()
                 .map(|e| eval_unquote(e, module, gen))
-                .collect::<Result<_, _>>()?,
+                .collect::<Result<_>>()?,
         )),
         Exp::Lambda(s, e) => Ok(lambda(&s, eval_unquote(*e, module, gen)?)),
         Exp::Apply(e1, e2) => Ok(apply(
@@ -227,20 +225,20 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
     }
 }
 
-pub fn eval_empty_module(exp: Exp) -> Result<Exp, EvalError> {
+pub fn eval_empty_module(exp: Exp) -> Result<Exp> {
     let mut gen = VariableGenerator::new();
     let module = Module::new("empty");
     eval(exp, &module, &mut gen)
 }
 
-pub fn eval_default_module(exp: Exp) -> Result<Exp, EvalError> {
+pub fn eval_default_module(exp: Exp) -> Result<Exp> {
     let mut gen = VariableGenerator::new();
     let module = default_module();
     eval(exp, &module, &mut gen)
 }
 
 impl Module {
-    pub fn run(&self, name: &str, args: Vec<Exp>) -> Result<Exp, EvalError> {
+    pub fn run(&self, name: &str, args: Vec<Exp>) -> Result<Exp> {
         let mut exp = self
             .get(name)
             .cloned()
@@ -252,7 +250,7 @@ impl Module {
         eval(exp, self, &mut gen)
     }
 
-    pub fn eval(&self, exp: Exp) -> Result<Exp, EvalError> {
+    pub fn eval(&self, exp: Exp) -> Result<Exp> {
         let mut gen = VariableGenerator::new();
         eval(exp, self, &mut gen)
     }
@@ -391,7 +389,7 @@ mod test {
             lambda(
                 "n",
                 if_(
-                    list(&[symbol("=="), symbol("n"), integer(0)]),
+                    list(&[symbol("="), symbol("n"), integer(0)]),
                     integer(1),
                     list(&[
                         symbol("*"),
