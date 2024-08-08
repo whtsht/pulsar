@@ -14,9 +14,7 @@ pub type Result<T> = std::result::Result<T, LoadError>;
 
 pub fn load_module(source: &str) -> Result<Module> {
     let mut parser = Parser::new(source);
-    let module = parser
-        .parse_module()
-        .map_err(|err| LoadError::ParseError(err))?;
+    let module = parser.parse_module().map_err(LoadError::ParseError)?;
 
     let (mut defines, mut macros) = {
         let module = default_module();

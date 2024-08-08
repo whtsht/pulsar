@@ -93,8 +93,8 @@ impl Display for Exp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Exp::Nil => write!(f, "nil"),
-            Exp::Bool(bool) => write!(f, "{}", bool.to_string()),
-            Exp::Integer(integer) => write!(f, "{}", integer.to_string()),
+            Exp::Bool(bool) => write!(f, "{}", bool),
+            Exp::Integer(integer) => write!(f, "{}", integer),
             Exp::String(str) => write!(f, "{}", str),
             Exp::Symbol(sym) => write!(f, "{}", sym),
             Exp::Lambda(arg, exp) => write!(f, "(\\ ({}) {})", arg, exp),

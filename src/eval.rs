@@ -150,18 +150,19 @@ fn eval_app(
     e2: Exp,
     module: &Module,
     gen: &mut VariableGenerator,
-) -> Result<(Exp, bool), EvalError> {
+) -> Result<Exp, EvalError> {
     match e1 {
         Exp::Lambda(x, e11) => {
             if is_value(&e2) {
                 let e = subst(e2, x, *e11, gen);
-                Ok((e, true))
+                eval(e, module, gen)
             } else {
-                let (e2, _) = step(e2, module, gen)?;
-                Ok((
+                let e2 = eval(e2, module, gen)?;
+                eval(
                     Exp::Apply(Box::new(Exp::Lambda(x, e11)), Box::new(e2)),
-                    true,
-                ))
+                    module,
+                    gen,
+                )
             }
         }
         Exp::Symbol(sym) => {
@@ -172,69 +173,67 @@ fn eval_app(
             }
         }
         Exp::Apply(..) => {
-            let (e1, _) = step(e1, module, gen)?;
-            Ok((Exp::Apply(Box::new(e1), Box::new(e2)), true))
+            let e1 = eval(e1, module, gen)?;
+            eval(Exp::Apply(Box::new(e1), Box::new(e2)), module, gen)
         }
         Exp::List(es) => {
-            let (e1, _) = step(Exp::List(es), module, gen)?;
-            Ok((Exp::Apply(Box::new(e1), Box::new(e2)), true))
+            let e1 = eval(Exp::List(es), module, gen)?;
+            eval(Exp::Apply(Box::new(e1), Box::new(e2)), module, gen)
         }
         _ => Err(EvalError::FailedToApply(e1, e2)),
     }
 }
 
-fn step(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<(Exp, bool), EvalError> {
+pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     match exp.clone() {
-        Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => {
-            Ok((exp, false))
-        }
+        Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => Ok(exp),
         Exp::Symbol(sym) => {
             if let Some(e) = module.get(&sym) {
-                Ok((e.clone(), true))
+                Ok(e.clone())
             } else {
                 Err(EvalError::SymbolNotFound(sym))
             }
         }
-        Exp::Lambda(..) => Ok((exp, false)),
+        Exp::Lambda(..) => Ok(exp),
         Exp::Apply(e1, e2) => eval_app(*e1, *e2, module, gen),
         Exp::If(e1, e2, e3) => match eval(*e1, module, gen)? {
-            Exp::Bool(true) => Ok((*e2, true)),
-            Exp::Bool(false) => Ok((*e3, true)),
+            Exp::Bool(true) => eval(*e2, module, gen),
+            Exp::Bool(false) => eval(*e3, module, gen),
             _ => Err(EvalError::ExpectedBool(exp)),
         },
         Exp::Let(bind, exp) => {
             let (sym, body) = bind;
-            Ok((apply(lambda(&sym, *exp), *body), true))
+            eval(apply(lambda(&sym, *exp), *body), module, gen)
         }
         Exp::Case(e, cases) => {
             let e = eval(*e, module, gen)?;
             for (cond, body) in cases {
                 if let Exp::Symbol(sym) = &cond {
-                    return Ok((subst(e, sym.clone(), body, gen), false));
+                    return Ok(subst(e, sym.clone(), body, gen));
                 }
                 if e == cond {
-                    return Ok((body, false));
+                    return Ok(body);
                 }
             }
             Err(EvalError::NeverMatched(e))
         }
-        Exp::Quote(e) => Ok((eval_unquote(*e, module, gen)?, false)),
+        Exp::Quote(e) => eval_unquote(*e, module, gen),
         Exp::UnQuote(_) => unreachable!("eval unquote"),
         Exp::List(list) => {
             if let Some((head, tail)) = list.split_first() {
                 let head = eval(head.clone(), module, gen)?;
 
                 if let Exp::BuildIn(f) = head {
-                    let args = tail.iter().cloned().collect::<Vec<_>>();
-                    Ok((f(&args, module, gen)?, false))
+                    let args = tail.to_vec();
+                    f(&args, module, gen)
                 } else {
                     let e = tail.iter().fold(head.clone(), |acc, e| {
                         Exp::Apply(Box::new(acc), Box::new(e.clone()))
                     });
-                    Ok((e, true))
+                    eval(e, module, gen)
                 }
             } else {
-                Ok((Exp::Nil, false))
+                Ok(Exp::Nil)
             }
         }
     }
@@ -287,21 +286,11 @@ pub fn eval_default_module(exp: Exp) -> Result<Exp, EvalError> {
     eval(exp, &module, &mut gen)
 }
 
-pub fn eval(mut exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
-    loop {
-        match step(exp, module, gen) {
-            Ok((exp_next, true)) => exp = exp_next,
-            Ok((exp_next, false)) => return Ok(exp_next),
-            Err(err) => return Err(err),
-        }
-    }
-}
-
 impl Module {
     pub fn run(&self, name: &str, args: Vec<Exp>) -> Result<Exp, EvalError> {
         let mut exp = self
             .get(name)
-            .map(|e| e.clone())
+            .cloned()
             .ok_or_else(|| EvalError::SymbolNotFound(name.to_string()))?;
         let mut gen = VariableGenerator::new();
         for arg in args {

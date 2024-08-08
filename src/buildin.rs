@@ -92,8 +92,8 @@ fn cons(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Ex
 
 fn list(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     let args = args
-        .to_vec()
-        .into_iter()
+        .iter()
+        .cloned()
         .map(|exp| eval(exp, module, gen))
         .collect::<Result<_, _>>()?;
     Ok(Exp::List(args))
@@ -138,10 +138,7 @@ fn nth(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp
 
 fn is_atom(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
     let exp = parse_unary(args, module, gen)?;
-    Ok(ast::bool(match exp {
-        Exp::List(_) => false,
-        _ => true,
-    }))
+    Ok(ast::bool(matches!(exp, Exp::List(_))))
 }
 
 fn print(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp, EvalError> {
