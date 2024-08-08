@@ -265,7 +265,7 @@ pub fn default_module() -> Module {
     insert_binary_curry_op(mul, "*", &mut module);
     insert_binary_curry_op(div, "/", &mut module);
 
-    insert_binary_curry_op(eq, "==", &mut module);
+    insert_binary_curry_op(eq, "=", &mut module);
     insert_binary_curry_op(ne, "/=", &mut module);
 
     insert_binary_curry_op(cons, "cons", &mut module);
