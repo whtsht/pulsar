@@ -1,8 +1,8 @@
-use std::io::{self, Write};
-use topogi_lang::{
+use pulsar::{
     eval,
     parser::{parse_error_message, Parser},
 };
+use std::io::{self, Write};
 
 fn main() {
     loop {
