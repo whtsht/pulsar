@@ -43,6 +43,14 @@ impl Parser {
         self.lexer.next_token().map_err(ParseError::LexerError)
     }
 
+    pub fn peek_token(&mut self) -> Result<Token, ParseError> {
+        self.lexer.peek_token().map_err(ParseError::LexerError)
+    }
+
+    pub fn skip_token(&mut self) {
+        self.lexer.skip_token();
+    }
+
     pub fn parse_right_param(&mut self) -> Result<(), ParseError> {
         match self.next_token()? {
             token if token.kind == TokenKind::RParen => Ok(()),
@@ -75,7 +83,7 @@ impl Parser {
     }
 
     pub fn parse_lambda(&mut self) -> Result<Exp, ParseError> {
-        self.lexer.skip_token();
+        self.skip_token();
 
         let token = self.next_token()?;
         let param = token
@@ -90,7 +98,7 @@ impl Parser {
 
     pub fn parse_exps(&mut self) -> Result<Vec<Exp>, ParseError> {
         let mut elems = Vec::new();
-        while let Ok(token) = self.lexer.peek_token() {
+        while let Ok(token) = self.peek_token() {
             match token.kind {
                 TokenKind::RParen => {
                     break;
@@ -106,7 +114,7 @@ impl Parser {
     }
 
     pub fn parse_if(&mut self) -> Result<Exp, ParseError> {
-        self.lexer.skip_token();
+        self.skip_token();
         let cond = self.parse_exp()?;
         let then = self.parse_exp()?;
         let else_ = self.parse_exp()?;
@@ -115,7 +123,7 @@ impl Parser {
     }
 
     pub fn parse_let(&mut self) -> Result<Exp, ParseError> {
-        self.lexer.skip_token();
+        self.skip_token();
 
         self.parse_left_param()?;
         let token = self.next_token()?;
@@ -152,7 +160,7 @@ impl Parser {
                 "true" => Ok(bool(true)),
                 sym => Ok(symbol(sym)),
             },
-            TokenKind::LParen => match self.lexer.peek_token().map(|t| t.kind) {
+            TokenKind::LParen => match self.peek_token().map(|t| t.kind) {
                 Ok(TokenKind::Symbol(sym)) => match sym.as_str() {
                     "\\" => self.parse_lambda(),
                     "if" => self.parse_if(),
@@ -201,7 +209,7 @@ impl Parser {
     ) -> Result<(Vec<(String, Exp)>, Vec<(String, Exp, Vec<Exp>)>), ParseError> {
         let mut defines = vec![];
         let mut macros = vec![];
-        while let Ok(token) = self.lexer.peek_token() {
+        while let Ok(token) = self.peek_token() {
             if token.kind == TokenKind::RParen {
                 break;
             }
