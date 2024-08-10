@@ -191,11 +191,15 @@ impl Parser {
         Ok((name, exp))
     }
 
-    pub fn parse_macro(&mut self) -> Result<(String, Exp, Vec<Exp>), ParseError> {
+    pub fn parse_macro(&mut self) -> Result<(String, Exp, Vec<String>), ParseError> {
         let name = self.parse_symbol()?;
 
         self.parse_left_param()?;
-        let args = self.parse_exps()?;
+        let args = self
+            .parse_exps()?
+            .into_iter()
+            .filter_map(|exp| exp.as_symbol().map(|sym| sym.to_string()))
+            .collect();
 
         let body = self.parse_exp()?;
 
@@ -206,7 +210,7 @@ impl Parser {
 
     pub fn parse_defines_or_macros(
         &mut self,
-    ) -> Result<(Vec<(String, Exp)>, Vec<(String, Exp, Vec<Exp>)>), ParseError> {
+    ) -> Result<(Vec<(String, Exp)>, Vec<(String, Exp, Vec<String>)>), ParseError> {
         let mut defines = vec![];
         let mut macros = vec![];
         while let Ok(token) = self.peek_token() {
@@ -226,7 +230,7 @@ impl Parser {
 
     pub fn parse_module(
         &mut self,
-    ) -> Result<(String, Vec<(String, Exp)>, Vec<(String, Exp, Vec<Exp>)>), ParseError> {
+    ) -> Result<(String, Vec<(String, Exp)>, Vec<(String, Exp, Vec<String>)>), ParseError> {
         self.parse_left_param()?;
         self.parse_special_symbol("module")?;
 
@@ -432,8 +436,8 @@ mod tests {
                         unquote(symbol("cond")),
                         unquote(symbol("else")),
                         unquote(symbol("then"))
-                    ),),
-                    vec![symbol("cond"), symbol("then"), symbol("else")],
+                    )),
+                    vec!["cond".into(), "then".into(), "else".into()],
                 )]
             ))
         );

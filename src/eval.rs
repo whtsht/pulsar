@@ -186,13 +186,8 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
                 if let Some(sym) = head.as_symbol() {
                     if let Some((mut macro_, args)) = module.macros.get(sym).cloned() {
                         if args.len() == tail.len() {
-                            for (arg, exp) in args.iter().zip(tail.iter()) {
-                                if let Some(arg) = arg.as_symbol() {
-                                    macro_ =
-                                        subst(quote(exp.clone()), arg.to_string(), macro_, gen);
-                                } else {
-                                    return Err(EvalError::InvalidArgs(tail.to_vec()));
-                                }
+                            for (arg, exp) in args.into_iter().zip(tail.iter()) {
+                                macro_ = subst(quote(exp.clone()), arg, macro_, gen);
                             }
                             let expanded = eval(macro_, module, gen)?;
                             return eval(expanded, module, gen);

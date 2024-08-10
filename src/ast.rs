@@ -6,7 +6,7 @@ use crate::eval::{EvalError, VariableGenerator};
 pub struct Module {
     pub name: String,
     pub defines: HashMap<String, Exp>,
-    pub macros: HashMap<String, (Exp, Vec<Exp>)>,
+    pub macros: HashMap<String, (Exp, Vec<String>)>,
 }
 
 impl Module {
