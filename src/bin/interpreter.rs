@@ -1,10 +1,12 @@
 use pulsar::{
-    eval,
+    buildin::default_module,
     parser::{parse_error_message, Parser},
 };
 use std::io::{self, Write};
 
 fn main() {
+    let mut module = default_module();
+
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
@@ -20,7 +22,20 @@ fn main() {
             break;
         }
 
-        let ast = match Parser::new(input).parse_exp() {
+        match Parser::new(input).parse_defines_or_macros() {
+            Ok((defines, macros)) => {
+                for (name, exp) in defines {
+                    module.defines.insert(name, exp);
+                }
+                for (name, exp, args) in macros {
+                    module.macros.insert(name, (exp, args));
+                }
+                continue;
+            }
+            Err(_) => {}
+        }
+
+        let exp = match Parser::new(input).parse_exp() {
             Ok(ast) => ast,
             Err(err) => {
                 println!("{}", parse_error_message(err, input));
@@ -28,7 +43,7 @@ fn main() {
             }
         };
 
-        match eval::eval_default_module(ast) {
+        match module.eval(exp) {
             Ok(result) => println!("=> {}\n", result),
             Err(e) => {
                 println!("{:?}", e);
