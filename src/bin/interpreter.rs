@@ -36,7 +36,7 @@ fn main() {
         }
 
         let exp = match Parser::new(input).parse_exp() {
-            Ok(ast) => ast,
+            Ok(exp) => exp,
             Err(err) => {
                 println!("{}", parse_error_message(err, input));
                 continue;

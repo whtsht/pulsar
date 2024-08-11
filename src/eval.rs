@@ -438,29 +438,14 @@ mod test {
 
     #[test]
     fn test_frac() {
-        let mut module = default_module();
-        let def = Define::new(
-            "frac",
-            lambda(
-                "n",
-                if_(
-                    list(&[symbol("=="), symbol("n"), integer(0)]),
-                    integer(1),
-                    list(&[
-                        symbol("*"),
-                        symbol("n"),
-                        apply(
-                            symbol("frac"),
-                            list(&[symbol("-"), symbol("n"), integer(1)]),
-                        ),
-                    ]),
-                ),
-            ),
-        );
-        module.defines.insert("frac".to_string(), def);
-        let exp = list(&[symbol("frac"), integer(5)]);
-        let mut gen = VariableGenerator::new();
-        assert_eq!(eval(exp, &module, &mut gen), Ok(integer(120)));
+        let source = r#"
+        (define frac (n)
+            (if (== n 0)
+            1
+            (* n (frac (- n 1)))))
+            "#;
+        let module = load_module(source, "frac").unwrap();
+        assert_eq!(module.run("frac", vec![integer(5)]), Ok(integer(120)));
     }
 
     #[test]

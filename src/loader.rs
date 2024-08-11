@@ -57,10 +57,11 @@ pub fn resolve_module(module: UnresolvedModule) -> Result<Module> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Define, Exp};
+    use crate::ast::{list, symbol, Define, Exp};
 
     #[test]
     fn test_load_module() {
+        let func = |exp: Exp| list(&vec![symbol("block"), exp]);
         let source = r#"
             (define x () 1)
             (define y () 2)
@@ -69,11 +70,11 @@ mod tests {
         assert_eq!(module.defines.len(), default_module().defines.len() + 2);
         assert_eq!(
             module.defines.get("x"),
-            Some(&Define::new("x", Exp::Integer(1)))
+            Some(&Define::new("x", func(Exp::Integer(1))))
         );
         assert_eq!(
             module.defines.get("y"),
-            Some(&Define::new("y", Exp::Integer(2)))
+            Some(&Define::new("y", func(Exp::Integer(2))))
         );
     }
 

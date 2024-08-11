@@ -182,16 +182,21 @@ impl Parser {
         self.parse_left_param()?;
         let args = self.parse_exps()?;
 
-        let body = self.parse_exp()?;
-
-        self.parse_right_param()?;
-
-        let exp = args
+        let body = self
+            .parse_exps()?
             .into_iter()
-            .rev()
-            .fold(body, |acc, arg| lambda(arg.as_symbol().unwrap(), acc));
+            .map(|exp| {
+                args.clone()
+                    .into_iter()
+                    .rev()
+                    .fold(exp, |acc, arg| lambda(arg.as_symbol().unwrap(), acc))
+            })
+            .collect::<Vec<_>>();
 
-        Ok(Define { name, exp })
+        Ok(Define {
+            name,
+            exp: list(&[vec![symbol("block")], body].concat()),
+        })
     }
 
     pub fn parse_macro_args(&mut self) -> Result<(Vec<String>, Option<String>), ParseError> {
@@ -308,6 +313,10 @@ impl Parser {
 mod tests {
     use super::Parser;
     use crate::ast::*;
+
+    fn func(exp: Exp) -> Exp {
+        list(&vec![symbol("block"), exp])
+    }
 
     #[test]
     fn test_parse_integer() {
@@ -432,26 +441,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_module() {
-        let mut parser = Parser::new("(define foo (x) (+ 2 4)) (define bar () 2)");
-        assert_eq!(
-            parser.parse_module("test"),
-            Ok(UnresolvedModule::new(
-                "test",
-                &[
-                    Define::new(
-                        "foo",
-                        lambda("x", list(&vec![symbol("+"), integer(2), integer(4)]))
-                    ),
-                    Define::new("bar", integer(2))
-                ],
-                &[],
-                &[]
-            ))
-        );
-    }
-
-    #[test]
     fn test_comment() {
         let mut parser = Parser::new(
             r#"
@@ -469,9 +458,12 @@ mod tests {
                 &[
                     Define::new(
                         "foo",
-                        lambda("x", list(&vec![symbol("+"), integer(2), integer(4)]))
+                        func(lambda(
+                            "x",
+                            list(&vec![symbol("+"), integer(2), integer(4)])
+                        ))
                     ),
-                    Define::new("bar", integer(2))
+                    Define::new("bar", func(integer(2)))
                 ],
                 &[],
                 &[]

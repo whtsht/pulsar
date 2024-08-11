@@ -55,6 +55,16 @@ fn parse_binary_integer(
     ))
 }
 
+fn block(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
+    let (init, last) = args.split_at(args.len() - 1);
+    init.iter()
+        .cloned()
+        .map(|exp| eval(exp, module, gen))
+        .collect::<Result<Vec<Exp>>>()?;
+
+    eval(last[0].clone(), module, gen)
+}
+
 fn add(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
     let (lhs, rhs) = parse_binary_integer(args, module, gen)?;
     Ok(Exp::Integer(lhs + rhs))
@@ -374,7 +384,7 @@ fn insert_ternary_curry_op(
     );
 }
 
-fn insert_unary_op(
+fn insert_buildin_func(
     func: fn(&[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp>,
     func_name: &str,
     module: &mut Module,
@@ -388,40 +398,42 @@ fn insert_unary_op(
 pub fn default_module() -> Module {
     let mut module = Module::new("##default##");
 
+    insert_buildin_func(block, "block", &mut module);
+
     insert_binary_curry_op(add, "+", &mut module);
     insert_binary_curry_op(sub, "-", &mut module);
     insert_binary_curry_op(mul, "*", &mut module);
     insert_binary_curry_op(div, "/", &mut module);
-    insert_unary_op(odd, "odd", &mut module);
-    insert_unary_op(even, "even", &mut module);
+    insert_buildin_func(odd, "odd", &mut module);
+    insert_buildin_func(even, "even", &mut module);
 
     insert_binary_curry_op(eq, "==", &mut module);
     insert_binary_curry_op(ne, "/=", &mut module);
 
     insert_binary_curry_op(cons, "cons", &mut module);
-    insert_unary_op(list, "list", &mut module);
-    insert_unary_op(is_atom, "atom", &mut module);
-    insert_unary_op(is_empty, "is_empty", &mut module);
+    insert_buildin_func(list, "list", &mut module);
+    insert_buildin_func(is_atom, "atom", &mut module);
+    insert_buildin_func(is_empty, "is_empty", &mut module);
 
-    insert_unary_op(first, "first", &mut module);
-    insert_unary_op(second, "second", &mut module);
-    insert_unary_op(third, "third", &mut module);
+    insert_buildin_func(first, "first", &mut module);
+    insert_buildin_func(second, "second", &mut module);
+    insert_buildin_func(third, "third", &mut module);
     insert_binary_curry_op(nth, "nth", &mut module);
-    insert_unary_op(head, "head", &mut module);
-    insert_unary_op(tail, "tail", &mut module);
-    insert_unary_op(init, "init", &mut module);
-    insert_unary_op(last, "last", &mut module);
+    insert_buildin_func(head, "head", &mut module);
+    insert_buildin_func(tail, "tail", &mut module);
+    insert_buildin_func(init, "init", &mut module);
+    insert_buildin_func(last, "last", &mut module);
 
-    insert_unary_op(print, "print", &mut module);
-    insert_unary_op(println, "println", &mut module);
+    insert_buildin_func(print, "print", &mut module);
+    insert_buildin_func(println, "println", &mut module);
 
     insert_binary_curry_op(string_append, "string-append", &mut module);
-    insert_unary_op(string_head, "string-head", &mut module);
-    insert_unary_op(string_tail, "string-tail", &mut module);
-    insert_unary_op(string_init, "string-init", &mut module);
-    insert_unary_op(string_last, "string-last", &mut module);
+    insert_buildin_func(string_head, "string-head", &mut module);
+    insert_buildin_func(string_tail, "string-tail", &mut module);
+    insert_buildin_func(string_init, "string-init", &mut module);
+    insert_buildin_func(string_last, "string-last", &mut module);
 
-    insert_unary_op(symbol_to_string, "symbol->string", &mut module);
+    insert_buildin_func(symbol_to_string, "symbol->string", &mut module);
 
     insert_ternary_curry_op(foldr, "foldr", &mut module);
     insert_ternary_curry_op(foldl, "foldl", &mut module);
@@ -653,5 +665,16 @@ mod tests {
             eval_default_module(e),
             Ok(list(&[integer(1), integer(3), integer(5)]))
         );
+    }
+
+    #[test]
+    fn test_block() {
+        let e = list(&[
+            symbol("block"),
+            list(&[symbol("print"), integer(1)]),
+            integer(2),
+            integer(3),
+        ]);
+        assert_eq!(eval_default_module(e), Ok(integer(3)));
     }
 }
