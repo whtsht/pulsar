@@ -235,9 +235,12 @@ impl Parser {
         })
     }
 
-    pub fn parse_defines_or_macros(&mut self) -> Result<(Vec<Define>, Vec<Macro>), ParseError> {
+    pub fn parse_inner_module(&mut self) -> Result<UnresolvedModule, ParseError> {
+        let name = self.parse_symbol()?;
+
         let mut defines = vec![];
         let mut macros = vec![];
+        let mut inner_modules = vec![];
         while let Ok(token) = self.peek_token() {
             if token.kind == TokenKind::RParen {
                 break;
@@ -247,22 +250,57 @@ impl Parser {
             match self.next_token()?.as_symbol() {
                 Some("define") => defines.push(self.parse_def()?),
                 Some("macro") => macros.push(self.parse_macro()?),
+                Some("module") => inner_modules.push(self.parse_inner_module()?),
                 _ => return Err(ParseError::ExpectedSymbol(token)),
             }
         }
-        Ok((defines, macros))
-    }
-
-    pub fn parse_module(&mut self) -> Result<(String, Vec<Define>, Vec<Macro>), ParseError> {
-        self.parse_left_param()?;
-        self.parse_special_symbol("module")?;
-
-        let module_name = self.parse_symbol()?;
-        let (defines, macros) = self.parse_defines_or_macros()?;
 
         self.parse_right_param()?;
 
-        Ok((module_name, defines, macros))
+        Ok(UnresolvedModule {
+            name: name.to_string(),
+            defines,
+            macros,
+            inner_modules,
+        })
+    }
+
+    pub fn parse_defines_or_macros(
+        &mut self,
+    ) -> Result<(Option<Define>, Option<Macro>), ParseError> {
+        self.parse_left_param()?;
+        let token = self.next_token()?;
+        match token.as_symbol() {
+            Some("define") => Ok((Some(self.parse_def()?), None)),
+            Some("macro") => Ok((None, Some(self.parse_macro()?))),
+            _ => return Err(ParseError::ExpectedSymbol(token)),
+        }
+    }
+
+    pub fn parse_module(&mut self, name: &str) -> Result<UnresolvedModule, ParseError> {
+        let mut defines = vec![];
+        let mut macros = vec![];
+        let mut inner_modules = vec![];
+        while let Ok(token) = self.peek_token() {
+            if token.kind == TokenKind::RParen {
+                break;
+            }
+            self.parse_left_param()?;
+
+            match self.next_token()?.as_symbol() {
+                Some("define") => defines.push(self.parse_def()?),
+                Some("macro") => macros.push(self.parse_macro()?),
+                Some("module") => inner_modules.push(self.parse_inner_module()?),
+                _ => return Err(ParseError::ExpectedSymbol(token)),
+            }
+        }
+
+        Ok(UnresolvedModule {
+            name: name.to_string(),
+            defines,
+            macros,
+            inner_modules,
+        })
     }
 }
 
@@ -395,19 +433,20 @@ mod tests {
 
     #[test]
     fn test_parse_module() {
-        let mut parser = Parser::new("(module main (define foo (x) (+ 2 4)) (define bar () 2))");
+        let mut parser = Parser::new("(define foo (x) (+ 2 4)) (define bar () 2)");
         assert_eq!(
-            parser.parse_module(),
-            Ok((
-                "main".to_string(),
-                vec![
+            parser.parse_module("test"),
+            Ok(UnresolvedModule::new(
+                "test",
+                &[
                     Define::new(
                         "foo",
                         lambda("x", list(&vec![symbol("+"), integer(2), integer(4)]))
                     ),
                     Define::new("bar", integer(2))
                 ],
-                vec![]
+                &[],
+                &[]
             ))
         );
     }
@@ -415,26 +454,27 @@ mod tests {
     #[test]
     fn test_comment() {
         let mut parser = Parser::new(
-            r#"(module main ; comment
+            r#"
             ; comment 
             (define foo (x) (+ 2 4)) ; comment
             ; comment
             (define bar () ; comment
              ; comment
-             2))"#,
+             2)"#,
         );
         assert_eq!(
-            parser.parse_module(),
-            Ok((
-                "main".to_string(),
-                vec![
+            parser.parse_module("test"),
+            Ok(UnresolvedModule::new(
+                "test",
+                &[
                     Define::new(
                         "foo",
                         lambda("x", list(&vec![symbol("+"), integer(2), integer(4)]))
                     ),
                     Define::new("bar", integer(2))
                 ],
-                vec![]
+                &[],
+                &[]
             ))
         );
     }
@@ -443,17 +483,16 @@ mod tests {
     fn test_macro() {
         let mut parser = Parser::new(
             r#"
-            (module test
-              (macro unless (cond then else)
-                `(if .cond .else .then)))"#,
+            (macro unless (cond then else)
+              `(if .cond .else .then))"#,
         );
 
         assert_eq!(
-            parser.parse_module(),
-            Ok((
-                "test".to_string(),
-                vec![],
-                vec![Macro::new(
+            parser.parse_module("test"),
+            Ok(UnresolvedModule::new(
+                "test",
+                &[],
+                &[Macro::new(
                     "unless",
                     backquote(if_(
                         unquote(symbol("cond")),
@@ -462,22 +501,22 @@ mod tests {
                     )),
                     vec!["cond".into(), "then".into(), "else".into()],
                     None
-                )]
+                )],
+                &[]
             ))
         );
 
         let mut parser = Parser::new(
             r#"
-            (module test
-                (macro sum (...values)
-                    `(foldl + 0 '.values)))"#,
+            (macro sum (...values)
+              `(foldl + 0 '.values))"#,
         );
         assert_eq!(
-            parser.parse_module(),
-            Ok((
-                "test".to_string(),
-                vec![],
-                vec![Macro::new(
+            parser.parse_module("test"),
+            Ok(UnresolvedModule::new(
+                "test",
+                &[],
+                &[Macro::new(
                     "sum",
                     backquote(list(&vec![
                         symbol("foldl"),
@@ -487,7 +526,8 @@ mod tests {
                     ])),
                     vec![],
                     Some("values".into())
-                )]
+                )],
+                &[]
             ))
         );
     }

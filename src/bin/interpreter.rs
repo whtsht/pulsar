@@ -23,11 +23,11 @@ fn main() {
         }
 
         match Parser::new(input).parse_defines_or_macros() {
-            Ok((defines, macros)) => {
-                for define in defines {
+            Ok((define, macro_)) => {
+                if let Some(define) = define {
                     module.set_define(define);
                 }
-                for macro_ in macros {
+                if let Some(macro_) = macro_ {
                     module.set_macro(macro_);
                 }
                 continue;

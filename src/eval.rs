@@ -164,7 +164,6 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => Ok(exp),
         Exp::Symbol(sym) => {
             if let Some(def) = module.defines.get(&sym) {
-                // eval(def.exp.clone(), module, gen)
                 Ok(def.exp.clone())
             } else if let Some(_) = module.macros.get(&sym) {
                 Ok(exp)
@@ -491,10 +490,9 @@ mod test {
     #[test]
     fn test_run_func_with_arg() {
         let source = r#"
-        (module test
-            (define test (a b c d) (+ (* a b) (* c d))))
+        (define test (a b c d) (+ (* a b) (* c d)))
         "#;
-        let module = load_module(source).unwrap();
+        let module = load_module(source, "test").unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
         assert_eq!(
             module.run("test", vec![integer(2), integer(5), integer(1), integer(3)]),
@@ -505,10 +503,9 @@ mod test {
     #[test]
     fn test_unquote() {
         let source = r#"
-        (module test
-            (define test () `(a .(+ 1 2))))
+        (define test () `(a .(+ 1 2)))
         "#;
-        let module = load_module(source).unwrap();
+        let module = load_module(source, "test").unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
         assert_eq!(
             module.run("test", vec![]),
@@ -516,10 +513,9 @@ mod test {
         );
 
         let source = r#"
-        (module test
-            (define test (a) `(a .a)))
+        (define test (a) `(a .a))
         "#;
-        let module = load_module(source).unwrap();
+        let module = load_module(source, "test").unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
         assert_eq!(
             module.run("test", vec![integer(1)]),
@@ -527,9 +523,8 @@ mod test {
         );
 
         let source = r#"
-        (module test
-            (define test () `(a `(b .(+ 1 2)))))"#;
-        let module = load_module(source).unwrap();
+        (define test () `(a `(b .(+ 1 2))))"#;
+        let module = load_module(source, "test").unwrap();
         assert_eq!(
             module.run("test", vec![]),
             Ok(list(&[
@@ -545,17 +540,16 @@ mod test {
     #[test]
     fn test_macro() {
         let source = r#"
-        (module test
-            (macro unless (cond then else) `(if .cond .else .then))
-            (macro and (a b) `(if .a .b .a))
-            (macro or (a b) `(if .a .a .b))
+        (macro unless (cond then else) `(if .cond .else .then))
+        (macro and (a b) `(if .a .b .a))
+        (macro or (a b) `(if .a .a .b))
 
-            (define test1 () (unless (== 1 1) (/ 1 0) 'b))
-            (define test2 () (and false (/ 1 0)))
-            (define test3 () (or true (/ 1 0)))
+        (define test1 () (unless (== 1 1) (/ 1 0) 'b))
+        (define test2 () (and false (/ 1 0)))
+        (define test3 () (or true (/ 1 0)))
 
-            (macro sum (...values) `(foldl + 0 '.values)))"#;
-        let module = load_module(source).unwrap();
+        (macro sum (...values) `(foldl + 0 '.values))"#;
+        let module = load_module(source, "test").unwrap();
         assert_eq!(module.run("test1", vec![]), Ok(symbol("b")));
         assert_eq!(module.run("test2", vec![]), Ok(bool(false)));
         assert_eq!(module.run("test3", vec![]), Ok(bool(true)));
@@ -584,5 +578,35 @@ mod test {
             eval_empty_module(exp),
             Err(EvalError::FailedToApply(integer(1), integer(2)))
         );
+    }
+
+    #[test]
+    fn test_cond_macro() {
+        let source = r#"
+        (macro cond (...clauses)
+            (if (is_empty clauses)
+                nil
+                (let (clause `'.(head clauses))
+                    `(if .(first clause)
+                            .(second clause)
+                            (cond @(tail clauses))))))
+        (define test ()
+            (cond
+                ((== 3 1) 1)
+                ((== 3 2) 2)
+                ((== 3 3) 3)))"#;
+        let module = load_module(source, "test").unwrap();
+        assert_eq!(module.run("test", vec![]), Ok(integer(3)));
+    }
+
+    #[test]
+    fn test_health() {
+        let source = r#"
+        (macro foo (a) `(first .a))
+
+        (define test ()
+            (let (first (\ x x)) (foo '(1 2 3))))"#;
+        let module = load_module(source, "test").unwrap();
+        assert_eq!(module.run("test", vec![]), Ok(integer(1)));
     }
 }

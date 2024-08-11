@@ -7,6 +7,7 @@ pub struct Module {
     pub name: String,
     pub defines: HashMap<String, Define>,
     pub macros: HashMap<String, Macro>,
+    pub inner_modules: Vec<Module>,
 }
 
 impl Module {
@@ -24,6 +25,30 @@ impl Module {
 
     pub fn get_macro(&self, name: &str) -> Option<&Macro> {
         self.macros.get(name)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnresolvedModule {
+    pub name: String,
+    pub defines: Vec<Define>,
+    pub macros: Vec<Macro>,
+    pub inner_modules: Vec<UnresolvedModule>,
+}
+
+impl UnresolvedModule {
+    pub fn new(
+        name: &str,
+        defines: &[Define],
+        macros: &[Macro],
+        inner_modules: &[UnresolvedModule],
+    ) -> Self {
+        UnresolvedModule {
+            name: name.to_string(),
+            defines: defines.to_vec(),
+            macros: macros.to_vec(),
+            inner_modules: inner_modules.to_vec(),
+        }
     }
 }
 
@@ -67,6 +92,7 @@ impl Module {
             name: name.to_string(),
             defines: HashMap::new(),
             macros: HashMap::new(),
+            inner_modules: Vec::new(),
         }
     }
 }
