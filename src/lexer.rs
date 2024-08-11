@@ -194,11 +194,6 @@ impl Lexer {
                 self.inc()?;
                 Ok(Token::new(TokenKind::Quote, loc))
             }
-            '~' => {
-                let loc = self.loc;
-                self.inc()?;
-                Ok(Token::new(TokenKind::UnQuote, loc))
-            }
             '`' => {
                 let loc = self.loc;
                 self.inc()?;
@@ -208,8 +203,8 @@ impl Lexer {
                 let loc = self.loc;
                 self.inc()?;
 
-                if separator(self.peek_char()?) {
-                    return Ok(Token::new(TokenKind::Dot, loc));
+                if self.peek_char()? != '.' {
+                    return Ok(Token::new(TokenKind::UnQuote, loc));
                 }
 
                 if self.next_cher()? != '.' {
@@ -457,7 +452,7 @@ mod tests {
         );
         assert_eq!(
             lexer.next_token(),
-            Ok(Token::new(TokenKind::Dot, Location::new(0, 4)))
+            Ok(Token::new(TokenKind::UnQuote, Location::new(0, 4)))
         );
         assert_eq!(
             lexer.next_token(),

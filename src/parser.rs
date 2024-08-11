@@ -153,7 +153,6 @@ impl Parser {
             TokenKind::Quote => Ok(quote(self.parse_exp()?)),
             TokenKind::BackQuote => Ok(backquote(self.parse_exp()?)),
             TokenKind::UnQuote => Ok(unquote(self.parse_exp()?)),
-            TokenKind::Dot => todo!(),
             TokenKind::Integer(int) => Ok(integer(int)),
             TokenKind::String(s) => Ok(Exp::String(s)),
             TokenKind::Symbol(sym) => match sym.as_str() {
@@ -327,7 +326,7 @@ mod tests {
         let mut parser = Parser::new("'quit");
         assert_eq!(parser.parse_exp(), Ok(quote(symbol("quit"))));
 
-        let mut parser = Parser::new("'(a b ~c)");
+        let mut parser = Parser::new("'(a b .c)");
         assert_eq!(
             parser.parse_exp(),
             Ok(quote(list(&vec![
@@ -445,7 +444,7 @@ mod tests {
             r#"
             (module test
               (macro unless (cond then else)
-                '(if ~cond ~else ~then)))"#,
+                `(if .cond .else .then)))"#,
         );
 
         assert_eq!(
@@ -455,7 +454,7 @@ mod tests {
                 vec![],
                 vec![Macro::new(
                     "unless",
-                    quote(if_(
+                    backquote(if_(
                         unquote(symbol("cond")),
                         unquote(symbol("else")),
                         unquote(symbol("then"))
@@ -470,7 +469,7 @@ mod tests {
             r#"
             (module test
                 (macro sum (...values)
-                    (foldl + 0 values)))"#,
+                    `(foldl + 0 '.values)))"#,
         );
         assert_eq!(
             parser.parse_module(),
@@ -479,12 +478,12 @@ mod tests {
                 vec![],
                 vec![Macro::new(
                     "sum",
-                    list(&vec![
+                    backquote(list(&vec![
                         symbol("foldl"),
                         symbol("+"),
                         integer(0),
-                        symbol("values")
-                    ]),
+                        quote(unquote(symbol("values")))
+                    ])),
                     vec![],
                     Some("values".into())
                 )]

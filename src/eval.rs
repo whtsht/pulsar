@@ -492,7 +492,7 @@ mod test {
     fn test_unquote() {
         let source = r#"
         (module test
-            (define test () `(a ~(+ 1 2))))
+            (define test () `(a .(+ 1 2))))
         "#;
         let module = load_module(source).unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
@@ -503,7 +503,7 @@ mod test {
 
         let source = r#"
         (module test
-            (define test (a) `(a ~a)))
+            (define test (a) `(a .a)))
         "#;
         let module = load_module(source).unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
@@ -514,7 +514,7 @@ mod test {
 
         let source = r#"
         (module test
-            (define test () `(a `(b ~(+ 1 2)))))"#;
+            (define test () `(a `(b .(+ 1 2)))))"#;
         let module = load_module(source).unwrap();
         assert_eq!(
             module.run("test", vec![]),
@@ -532,15 +532,15 @@ mod test {
     fn test_macro() {
         let source = r#"
         (module test
-            (macro unless (cond then else) `(if ~cond ~else ~then))
-            (macro and (a b) `(if ~a ~b ~a))
-            (macro or (a b) `(if ~a ~a ~b))
+            (macro unless (cond then else) `(if .cond .else .then))
+            (macro and (a b) `(if .a .b .a))
+            (macro or (a b) `(if .a .a .b))
 
             (define test1 () (unless (== 1 1) (/ 1 0) 'b))
             (define test2 () (and false (/ 1 0)))
             (define test3 () (or true (/ 1 0)))
 
-            (macro sum (...values) `(foldl + 0 '~values)))"#;
+            (macro sum (...values) `(foldl + 0 '.values)))"#;
         let module = load_module(source).unwrap();
         assert_eq!(module.run("test1", vec![]), Ok(symbol("b")));
         assert_eq!(module.run("test2", vec![]), Ok(bool(false)));

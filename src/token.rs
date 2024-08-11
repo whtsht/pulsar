@@ -42,7 +42,6 @@ pub enum TokenKind {
     BackQuote,
     UnQuote,
     Spread,
-    Dot,
 }
 
 fn separator(ch: char) -> bool {
