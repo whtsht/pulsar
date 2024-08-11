@@ -1,4 +1,4 @@
-use crate::{ast::*, buildin::default_module};
+use crate::{ast::*, buildin::default_module, parser::Parser};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum EvalError {
@@ -12,6 +12,7 @@ pub enum EvalError {
     FailedToApply(Exp, Exp),
     NeverMatched(Exp),
     UnquoteOutsideQuote(Exp),
+    MacroTooFewArgs(Vec<Exp>),
 }
 
 pub type Result<T> = std::result::Result<T, EvalError>;
@@ -77,6 +78,7 @@ fn subst(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
             let e1 = apply(lambda(&sym, *e), *body);
             subst(e2, x, e1, gen)
         }
+        Exp::BackQuote(e11) => Exp::BackQuote(Box::new(subst_unquote(e2, x, *e11, gen))),
         Exp::Quote(e11) => Exp::Quote(Box::new(subst_unquote(e2, x, *e11, gen))),
         Exp::UnQuote(_) => unreachable!("subst unquote"),
         Exp::List(list) => Exp::List(
@@ -94,7 +96,8 @@ fn subst_unquote(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Ex
         | Exp::Integer(_)
         | Exp::String(_)
         | Exp::Symbol(_)
-        | Exp::BuildIn(_) => e1,
+        | Exp::BuildIn(_)
+        | Exp::BackQuote(_) => e1,
         Exp::List(es) => list(
             &es.into_iter()
                 .map(|e| subst_unquote(e2.clone(), x.clone(), e, gen))
@@ -110,7 +113,7 @@ fn subst_unquote(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Ex
             subst_unquote(e2.clone(), x.clone(), *t, gen),
             subst_unquote(e2, x, *e, gen),
         ),
-        Exp::Quote(e) => *e,
+        Exp::Quote(exp) => quote(subst_unquote(e2, x, *exp, gen)),
         Exp::UnQuote(e11) => unquote(subst(e2, x, *e11, gen)),
         Exp::Let((s, b), e) => let_(
             (&s, subst_unquote(e2.clone(), x.clone(), *b, gen)),
@@ -135,8 +138,8 @@ fn eval_app(e1: Exp, e2: Exp, module: &Module, gen: &mut VariableGenerator) -> R
             }
         }
         Exp::Symbol(sym) => {
-            if let Some(e1) = module.defines.get(&sym) {
-                eval_app(e1.clone(), e2, module, gen)
+            if let Some(def) = module.defines.get(&sym) {
+                eval_app(def.exp.clone(), e2, module, gen)
             } else {
                 Err(EvalError::SymbolNotFound(sym))
             }
@@ -158,8 +161,9 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
     match exp.clone() {
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => Ok(exp),
         Exp::Symbol(sym) => {
-            if let Some(e) = module.defines.get(&sym) {
-                Ok(e.clone())
+            if let Some(def) = module.defines.get(&sym) {
+                // eval(def.exp.clone(), module, gen)
+                Ok(def.exp.clone())
             } else if let Some(_) = module.macros.get(&sym) {
                 Ok(exp)
             } else {
@@ -177,35 +181,28 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
             let (sym, body) = bind;
             eval(apply(lambda(&sym, *exp), *body), module, gen)
         }
-        Exp::Quote(e) => eval_unquote(*e, module, gen),
+        Exp::BackQuote(e) => eval_unquote(*e, module, gen),
+        Exp::Quote(e) => Ok(*e),
         Exp::UnQuote(e) => Err(EvalError::UnquoteOutsideQuote(*e)),
-        Exp::List(list) => {
-            if let Some((head, tail)) = list.split_first() {
+        Exp::List(elems) => {
+            if let Some((head, tail)) = elems.split_first() {
                 let head = eval(head.clone(), module, gen)?;
 
                 if let Some(sym) = head.as_symbol() {
-                    if let Some((mut macro_, args)) = module.macros.get(sym).cloned() {
-                        if args.len() == tail.len() {
-                            for (arg, exp) in args.into_iter().zip(tail.iter()) {
-                                macro_ = subst(quote(exp.clone()), arg, macro_, gen);
-                            }
-                            let expanded = eval(macro_, module, gen)?;
-                            return eval(expanded, module, gen);
-                        } else {
-                            return Err(EvalError::InvalidArgs(tail.to_vec()));
-                        }
+                    if let Some(macro_) = module.macros.get(sym).cloned() {
+                        return eval_macro(macro_, tail, module, gen);
                     }
                 }
 
                 if let Exp::BuildIn(f) = head {
                     let args = tail.to_vec();
-                    f(&args, module, gen)
-                } else {
-                    let e = tail.iter().fold(head.clone(), |acc, e| {
-                        Exp::Apply(Box::new(acc), Box::new(e.clone()))
-                    });
-                    eval(e, module, gen)
+                    return f(&args, module, gen);
                 }
+
+                let e = tail.iter().fold(head.clone(), |acc, e| {
+                    Exp::Apply(Box::new(acc), Box::new(e.clone()))
+                });
+                eval(e, module, gen)
             } else {
                 Ok(Exp::Nil)
             }
@@ -221,7 +218,7 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
         | Exp::String(_)
         | Exp::Symbol(_)
         | Exp::BuildIn(_)
-        | Exp::Quote(_) => Ok(exp),
+        | Exp::BackQuote(_) => Ok(exp),
         Exp::List(es) => Ok(Exp::List(
             es.into_iter()
                 .map(|e| eval_unquote(e, module, gen))
@@ -237,25 +234,38 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
             eval_unquote(*t, module, gen)?,
             eval_unquote(*e, module, gen)?,
         )),
+        Exp::Quote(e) => Ok(quote(eval_unquote(*e, module, gen)?)),
         Exp::UnQuote(e) => eval(*e, module, gen),
         Exp::Let((s, b), e) => Ok(let_((&s, *b), eval_unquote(*e, module, gen)?)),
     }
 }
 
-pub fn eval_macro(macro_: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
-    match macro_ {
-        Exp::Lambda(param, body) => Ok(Exp::Lambda(param, body)),
-        Exp::List(es) => {
-            let mut es = es.into_iter().map(|e| eval_macro(e, module, gen));
-            let head = es.next().ok_or(EvalError::NeverMatched(Exp::Nil))?;
-            let head = head?;
-            let tail = es.collect::<Result<Vec<_>>>()?;
-            Ok(Exp::List(
-                [head].iter().chain(tail.iter()).cloned().collect(),
-            ))
-        }
-        _ => Ok(macro_),
+pub fn eval_macro(
+    macro_: Macro,
+    args: &[Exp],
+    module: &Module,
+    gen: &mut VariableGenerator,
+) -> Result<Exp> {
+    let mut result = macro_.exp;
+    if args.len() < macro_.args.len() + macro_.var_arg.is_some() as usize {
+        return Err(EvalError::MacroTooFewArgs(args.to_vec()));
     }
+
+    let (args_exp, ver_arg_exp) = args.split_at(macro_.args.len());
+    for (arg, exp) in macro_.args.into_iter().zip(args_exp.iter()) {
+        result = subst(quote(exp.clone()), arg, result, gen);
+    }
+    if let Some(var_arg) = macro_.var_arg {
+        let var_arg_exp = list(ver_arg_exp);
+        result = subst(quote(var_arg_exp), var_arg, result, gen);
+    }
+
+    let exp = eval(result, module, gen)?;
+    eval(
+        Parser::new(&format!("{}", exp)).parse_exp().unwrap(),
+        module,
+        gen,
+    )
 }
 
 pub fn eval_empty_module(exp: Exp) -> Result<Exp> {
@@ -272,15 +282,13 @@ pub fn eval_default_module(exp: Exp) -> Result<Exp> {
 
 impl Module {
     pub fn run(&self, name: &str, args: Vec<Exp>) -> Result<Exp> {
-        let mut exp = self
-            .defines
-            .get(name)
-            .cloned()
-            .ok_or_else(|| EvalError::SymbolNotFound(name.to_string()))?;
         let mut gen = VariableGenerator::new();
-        for arg in args {
-            exp = apply(exp, arg);
+
+        if let Some(macro_) = self.macros.get(name).cloned() {
+            return eval_macro(macro_, &args, self, &mut gen);
         }
+
+        let exp = list(&[vec![symbol(name)], args].concat());
         eval(exp, self, &mut gen)
     }
 
@@ -418,12 +426,12 @@ mod test {
     #[test]
     fn test_frac() {
         let mut module = default_module();
-        module.defines.insert(
-            "frac".to_string(),
+        let def = Define::new(
+            "frac",
             lambda(
                 "n",
                 if_(
-                    list(&[symbol("="), symbol("n"), integer(0)]),
+                    list(&[symbol("=="), symbol("n"), integer(0)]),
                     integer(1),
                     list(&[
                         symbol("*"),
@@ -436,6 +444,7 @@ mod test {
                 ),
             ),
         );
+        module.defines.insert("frac".to_string(), def);
         let exp = list(&[symbol("frac"), integer(5)]);
         let mut gen = VariableGenerator::new();
         assert_eq!(eval(exp, &module, &mut gen), Ok(integer(120)));
@@ -483,7 +492,7 @@ mod test {
     fn test_unquote() {
         let source = r#"
         (module test
-            (define test () '(a ~(+ 1 2))))
+            (define test () `(a ~(+ 1 2))))
         "#;
         let module = load_module(source).unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
@@ -494,7 +503,7 @@ mod test {
 
         let source = r#"
         (module test
-            (define test (a) '(a ~a)))
+            (define test (a) `(a ~a)))
         "#;
         let module = load_module(source).unwrap();
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
@@ -503,20 +512,15 @@ mod test {
             Ok(list(&[symbol("a"), integer(1)]))
         );
 
-        // '(a '(b ~(+ 1 2)))
-        // => (a '(b ~(+ 1 2)))
-        let e = quote(list(&[
-            symbol("a"),
-            quote(list(&[
-                symbol("b"),
-                unquote(list(&[symbol("+"), integer(1), integer(2)])),
-            ])),
-        ]));
+        let source = r#"
+        (module test
+            (define test () `(a `(b ~(+ 1 2)))))"#;
+        let module = load_module(source).unwrap();
         assert_eq!(
-            eval_empty_module(e),
+            module.run("test", vec![]),
             Ok(list(&[
                 symbol("a"),
-                quote(list(&[
+                backquote(list(&[
                     symbol("b"),
                     unquote(list(&[symbol("+"), integer(1), integer(2)]))
                 ]))
@@ -528,16 +532,22 @@ mod test {
     fn test_macro() {
         let source = r#"
         (module test
-            (macro unless (cond then else) '(if ~cond ~else ~then))
-            (macro and (a b) '(if ~a ~b ~a))
-            (macro or (a b) '(if ~a ~a ~b))
-            (define test1 () (unless (= 1 1) (/ 1 0) 'b))
+            (macro unless (cond then else) `(if ~cond ~else ~then))
+            (macro and (a b) `(if ~a ~b ~a))
+            (macro or (a b) `(if ~a ~a ~b))
+
+            (define test1 () (unless (== 1 1) (/ 1 0) 'b))
             (define test2 () (and false (/ 1 0)))
-            (define test3 () (or true (/ 1 0))))"#;
+            (define test3 () (or true (/ 1 0)))
+
+            (macro sum (...values) `(foldl + 0 '~values)))"#;
         let module = load_module(source).unwrap();
-        assert_eq!(module.defines.len(), default_module().defines.len() + 3);
         assert_eq!(module.run("test1", vec![]), Ok(symbol("b")));
         assert_eq!(module.run("test2", vec![]), Ok(bool(false)));
         assert_eq!(module.run("test3", vec![]), Ok(bool(true)));
+        assert_eq!(
+            module.run("sum", vec![integer(1), integer(2), integer(3)]),
+            Ok(integer(6))
+        );
     }
 }

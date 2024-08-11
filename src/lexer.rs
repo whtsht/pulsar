@@ -108,9 +108,14 @@ impl Lexer {
         }
     }
 
-    pub fn next_cher(&mut self) -> Result<char, LexerError> {
+    pub fn peek_char(&mut self) -> Result<char, LexerError> {
         self.check_eof()?;
         let ch = self.input[self.pos];
+        Ok(ch)
+    }
+
+    pub fn next_cher(&mut self) -> Result<char, LexerError> {
+        let ch = self.peek_char()?;
         self.inc()?;
         Ok(ch)
     }
@@ -193,6 +198,28 @@ impl Lexer {
                 let loc = self.loc;
                 self.inc()?;
                 Ok(Token::new(TokenKind::UnQuote, loc))
+            }
+            '`' => {
+                let loc = self.loc;
+                self.inc()?;
+                Ok(Token::new(TokenKind::BackQuote, loc))
+            }
+            '.' => {
+                let loc = self.loc;
+                self.inc()?;
+
+                if separator(self.peek_char()?) {
+                    return Ok(Token::new(TokenKind::Dot, loc));
+                }
+
+                if self.next_cher()? != '.' {
+                    return Err(LexerError::InvalidSymbol(loc));
+                }
+                if self.next_cher()? != '.' {
+                    return Err(LexerError::InvalidSymbol(loc));
+                }
+
+                Ok(Token::new(TokenKind::Spread, loc))
             }
             '(' => {
                 let loc = self.loc;
@@ -418,6 +445,23 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(TokenKind::RParen, Location::new(0, 3)))
+        );
+    }
+
+    #[test]
+    fn test_dot() {
+        let mut lexer = Lexer::new("... . ...");
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(TokenKind::Spread, Location::new(0, 0)))
+        );
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(TokenKind::Dot, Location::new(0, 4)))
+        );
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(TokenKind::Spread, Location::new(0, 6)))
         );
     }
 

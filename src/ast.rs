@@ -5,8 +5,60 @@ use crate::eval::{EvalError, VariableGenerator};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
-    pub defines: HashMap<String, Exp>,
-    pub macros: HashMap<String, (Exp, Vec<String>)>,
+    pub defines: HashMap<String, Define>,
+    pub macros: HashMap<String, Macro>,
+}
+
+impl Module {
+    pub fn set_define(&mut self, define: Define) {
+        self.defines.insert(define.name.clone(), define);
+    }
+
+    pub fn get_define(&self, name: &str) -> Option<&Define> {
+        self.defines.get(name)
+    }
+
+    pub fn set_macro(&mut self, macro_: Macro) {
+        self.macros.insert(macro_.name.clone(), macro_);
+    }
+
+    pub fn get_macro(&self, name: &str) -> Option<&Macro> {
+        self.macros.get(name)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Define {
+    pub name: String,
+    pub exp: Exp,
+}
+
+impl Define {
+    pub fn new(name: &str, exp: Exp) -> Self {
+        Define {
+            name: name.to_string(),
+            exp,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Macro {
+    pub name: String,
+    pub exp: Exp,
+    pub args: Vec<String>,
+    pub var_arg: Option<String>,
+}
+
+impl Macro {
+    pub fn new(name: &str, exp: Exp, args: Vec<String>, var_arg: Option<String>) -> Self {
+        Macro {
+            name: name.to_string(),
+            exp,
+            args,
+            var_arg,
+        }
+    }
 }
 
 impl Module {
@@ -31,6 +83,7 @@ pub enum Exp {
     List(Vec<Exp>),
     If(Box<Exp>, Box<Exp>, Box<Exp>),
     Quote(Box<Exp>),
+    BackQuote(Box<Exp>),
     UnQuote(Box<Exp>),
     Let((String, Box<Exp>), Box<Exp>),
     BuildIn(fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>),
@@ -100,6 +153,7 @@ impl Display for Exp {
             ),
             Exp::If(cond, then, else_) => write!(f, "(if {} {} {})", cond, then, else_),
             Exp::Quote(exp) => write!(f, "'{}", exp),
+            Exp::BackQuote(exp) => write!(f, "`{}", exp),
             Exp::UnQuote(exp) => write!(f, "~{}", exp),
             Exp::Let((bind, exp1), exp2) => write!(f, "(let ({} {}) {})", bind, exp1, exp2),
             Exp::BuildIn(_) => write!(f, "#buildin",),
@@ -149,6 +203,10 @@ pub fn let_(bind: (&str, Exp), exp: Exp) -> Exp {
 
 pub fn quote(e: Exp) -> Exp {
     Exp::Quote(Box::new(e))
+}
+
+pub fn backquote(e: Exp) -> Exp {
+    Exp::BackQuote(Box::new(e))
 }
 
 pub fn unquote(e: Exp) -> Exp {

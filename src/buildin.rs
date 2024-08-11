@@ -1,7 +1,7 @@
 use std::ops::Not;
 
 use crate::{
-    ast::{self, apply, Exp, Module},
+    ast::{self, apply, Define, Exp, Module},
     eval::{eval, EvalError, Result, VariableGenerator},
 };
 
@@ -121,6 +121,14 @@ fn list(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Ex
         .map(|exp| eval(exp, module, gen))
         .collect::<Result<_>>()?;
     Ok(Exp::List(args))
+}
+
+fn is_empty(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
+    let is_empty = parse_unary(args, module, gen)?
+        .as_list()
+        .map(|list| list.is_empty())
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(ast::bool(is_empty))
 }
 
 fn first(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
@@ -293,11 +301,14 @@ fn insert_binary_curry_op(
 ) {
     module.defines.insert(
         func_name.to_string(),
-        ast::lambda(
-            "x",
+        Define::new(
+            func_name,
             ast::lambda(
-                "y",
-                ast::list(&[Exp::BuildIn(func), ast::symbol("x"), ast::symbol("y")]),
+                "x",
+                ast::lambda(
+                    "y",
+                    ast::list(&[Exp::BuildIn(func), ast::symbol("x"), ast::symbol("y")]),
+                ),
             ),
         ),
     );
@@ -310,18 +321,21 @@ fn insert_ternary_curry_op(
 ) {
     module.defines.insert(
         func_name.to_string(),
-        ast::lambda(
-            "x",
+        Define::new(
+            func_name,
             ast::lambda(
-                "y",
+                "x",
                 ast::lambda(
-                    "z",
-                    ast::list(&[
-                        Exp::BuildIn(func),
-                        ast::symbol("x"),
-                        ast::symbol("y"),
-                        ast::symbol("z"),
-                    ]),
+                    "y",
+                    ast::lambda(
+                        "z",
+                        ast::list(&[
+                            Exp::BuildIn(func),
+                            ast::symbol("x"),
+                            ast::symbol("y"),
+                            ast::symbol("z"),
+                        ]),
+                    ),
                 ),
             ),
         ),
@@ -333,9 +347,10 @@ fn insert_unary_op(
     func_name: &str,
     module: &mut Module,
 ) {
-    module
-        .defines
-        .insert(func_name.to_string(), ast::buildin(func));
+    module.defines.insert(
+        func_name.to_string(),
+        Define::new(func_name, ast::buildin(func)),
+    );
 }
 
 pub fn default_module() -> Module {
@@ -348,12 +363,13 @@ pub fn default_module() -> Module {
     insert_unary_op(odd, "odd", &mut module);
     insert_unary_op(even, "even", &mut module);
 
-    insert_binary_curry_op(eq, "=", &mut module);
+    insert_binary_curry_op(eq, "==", &mut module);
     insert_binary_curry_op(ne, "/=", &mut module);
 
     insert_binary_curry_op(cons, "cons", &mut module);
     insert_unary_op(list, "list", &mut module);
-    insert_unary_op(is_atom, "atom?", &mut module);
+    insert_unary_op(is_atom, "atom", &mut module);
+    insert_unary_op(is_empty, "is_empty", &mut module);
 
     insert_unary_op(first, "first", &mut module);
     insert_unary_op(second, "second", &mut module);
@@ -396,8 +412,8 @@ mod tests {
 
     #[test]
     fn test_compare_op() {
-        // (= 1 1) => true
-        let e = list(&[symbol("="), integer(1), integer(1)]);
+        // (== 1 1) => true
+        let e = list(&[symbol("=="), integer(1), integer(1)]);
         assert_eq!(eval_default_module(e), Ok(bool(true)));
 
         // (/= 1 1) => false
@@ -412,9 +428,9 @@ mod tests {
         ]);
         assert_eq!(eval_default_module(e), Ok(bool(true)));
 
-        // (= '(1 2) 2) => false
+        // (== '(1 2) 2) => false
         let e = list(&[
-            symbol("="),
+            symbol("=="),
             quote(list(&[integer(1), integer(2)])),
             integer(2),
         ]);
@@ -465,12 +481,12 @@ mod tests {
 
     #[test]
     fn test_is_atom() {
-        // (atom? 1) => true
-        let e = list(&[symbol("atom?"), integer(1)]);
+        // (atom 1) => true
+        let e = list(&[symbol("atom"), integer(1)]);
         assert_eq!(eval_default_module(e), Ok(bool(true)));
 
-        // (atom? '(1 2)) => false
-        let e = list(&[symbol("atom?"), quote(list(&[integer(1), integer(2)]))]);
+        // (atom '(1 2)) => false
+        let e = list(&[symbol("atom"), quote(list(&[integer(1), integer(2)]))]);
         assert_eq!(eval_default_module(e), Ok(bool(false)));
     }
 

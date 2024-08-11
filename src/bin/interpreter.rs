@@ -24,11 +24,11 @@ fn main() {
 
         match Parser::new(input).parse_defines_or_macros() {
             Ok((defines, macros)) => {
-                for (name, exp) in defines {
-                    module.defines.insert(name, exp);
+                for define in defines {
+                    module.set_define(define);
                 }
-                for (name, exp, args) in macros {
-                    module.macros.insert(name, (exp, args));
+                for macro_ in macros {
+                    module.set_macro(macro_);
                 }
                 continue;
             }
