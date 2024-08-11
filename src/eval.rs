@@ -81,6 +81,7 @@ fn subst(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
         Exp::BackQuote(e11) => Exp::BackQuote(Box::new(subst_unquote(e2, x, *e11, gen))),
         Exp::Quote(e11) => Exp::Quote(Box::new(subst_unquote(e2, x, *e11, gen))),
         Exp::UnQuote(_) => unreachable!("subst unquote"),
+        Exp::Extend(_) => unreachable!("subst extend"),
         Exp::List(list) => Exp::List(
             list.into_iter()
                 .map(|e| subst(e2.clone(), x.clone(), e, gen))
@@ -115,6 +116,7 @@ fn subst_unquote(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Ex
         ),
         Exp::Quote(exp) => quote(subst_unquote(e2, x, *exp, gen)),
         Exp::UnQuote(e11) => unquote(subst(e2, x, *e11, gen)),
+        Exp::Extend(e11) => extend(subst(e2, x, *e11, gen)),
         Exp::Let((s, b), e) => let_(
             (&s, subst_unquote(e2.clone(), x.clone(), *b, gen)),
             subst_unquote(e2, x, *e, gen),
@@ -183,7 +185,7 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
         }
         Exp::BackQuote(e) => eval_unquote(*e, module, gen),
         Exp::Quote(e) => Ok(*e),
-        Exp::UnQuote(e) => Err(EvalError::UnquoteOutsideQuote(*e)),
+        Exp::UnQuote(e) | Exp::Extend(e) => Err(EvalError::UnquoteOutsideQuote(*e)),
         Exp::List(elems) => {
             if let Some((head, tail)) = elems.split_first() {
                 let head = eval(head.clone(), module, gen)?;
@@ -221,8 +223,19 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
         | Exp::BackQuote(_) => Ok(exp),
         Exp::List(es) => Ok(Exp::List(
             es.into_iter()
-                .map(|e| eval_unquote(e, module, gen))
-                .collect::<Result<_>>()?,
+                .map(|e| {
+                    eval_unquote(e, module, gen).map(|e| match e {
+                        Exp::Extend(ex) => match *ex {
+                            Exp::List(es) => es,
+                            _ => vec![*ex],
+                        },
+                        _ => vec![e],
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .flatten()
+                .collect(),
         )),
         Exp::Lambda(s, e) => Ok(lambda(&s, eval_unquote(*e, module, gen)?)),
         Exp::Apply(e1, e2) => Ok(apply(
@@ -236,6 +249,7 @@ fn eval_unquote(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Resul
         )),
         Exp::Quote(e) => Ok(quote(eval_unquote(*e, module, gen)?)),
         Exp::UnQuote(e) => eval(*e, module, gen),
+        Exp::Extend(e) => Ok(extend(eval(*e, module, gen)?)),
         Exp::Let((s, b), e) => Ok(let_((&s, *b), eval_unquote(*e, module, gen)?)),
     }
 }
@@ -548,6 +562,27 @@ mod test {
         assert_eq!(
             module.run("sum", vec![integer(1), integer(2), integer(3)]),
             Ok(integer(6))
+        );
+    }
+
+    #[test]
+    fn test_extend() {
+        let exp = Parser::new("`(a b @'(1 2 3))").parse_exp().unwrap();
+        // => (a b 1 2 3)
+        assert_eq!(
+            eval_default_module(exp),
+            Ok(list(&[
+                symbol("a"),
+                symbol("b"),
+                integer(1),
+                integer(2),
+                integer(3)
+            ]))
+        );
+        let exp = Parser::new("`(a b @(1 2 3))").parse_exp().unwrap();
+        assert_eq!(
+            eval_empty_module(exp),
+            Err(EvalError::FailedToApply(integer(1), integer(2)))
         );
     }
 }

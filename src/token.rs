@@ -41,6 +41,7 @@ pub enum TokenKind {
     Quote,
     BackQuote,
     UnQuote,
+    Extend,
     Spread,
 }
 

@@ -85,6 +85,7 @@ pub enum Exp {
     Quote(Box<Exp>),
     BackQuote(Box<Exp>),
     UnQuote(Box<Exp>),
+    Extend(Box<Exp>),
     Let((String, Box<Exp>), Box<Exp>),
     BuildIn(fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>),
 }
@@ -154,7 +155,8 @@ impl Display for Exp {
             Exp::If(cond, then, else_) => write!(f, "(if {} {} {})", cond, then, else_),
             Exp::Quote(exp) => write!(f, "'{}", exp),
             Exp::BackQuote(exp) => write!(f, "`{}", exp),
-            Exp::UnQuote(exp) => write!(f, "~{}", exp),
+            Exp::UnQuote(exp) => write!(f, ".{}", exp),
+            Exp::Extend(exp) => write!(f, "@{}", exp),
             Exp::Let((bind, exp1), exp2) => write!(f, "(let ({} {}) {})", bind, exp1, exp2),
             Exp::BuildIn(_) => write!(f, "#buildin",),
         }
@@ -211,6 +213,10 @@ pub fn backquote(e: Exp) -> Exp {
 
 pub fn unquote(e: Exp) -> Exp {
     Exp::UnQuote(Box::new(e))
+}
+
+pub fn extend(e: Exp) -> Exp {
+    Exp::Extend(Box::new(e))
 }
 
 pub fn buildin(f: fn(&[Exp], &Module, &mut VariableGenerator) -> Result<Exp, EvalError>) -> Exp {

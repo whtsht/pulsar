@@ -194,6 +194,11 @@ impl Lexer {
                 self.inc()?;
                 Ok(Token::new(TokenKind::Quote, loc))
             }
+            '@' => {
+                let loc = self.loc;
+                self.inc()?;
+                Ok(Token::new(TokenKind::Extend, loc))
+            }
             '`' => {
                 let loc = self.loc;
                 self.inc()?;

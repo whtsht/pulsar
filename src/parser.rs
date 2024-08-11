@@ -153,6 +153,7 @@ impl Parser {
             TokenKind::Quote => Ok(quote(self.parse_exp()?)),
             TokenKind::BackQuote => Ok(backquote(self.parse_exp()?)),
             TokenKind::UnQuote => Ok(unquote(self.parse_exp()?)),
+            TokenKind::Extend => Ok(extend(self.parse_exp()?)),
             TokenKind::Integer(int) => Ok(integer(int)),
             TokenKind::String(s) => Ok(Exp::String(s)),
             TokenKind::Symbol(sym) => match sym.as_str() {
