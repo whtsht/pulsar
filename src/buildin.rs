@@ -152,6 +152,38 @@ fn third(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<E
         .ok_or(EvalError::InvalidArgs(args.to_vec()))
 }
 
+fn head(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
+    let exp = parse_unary(args, module, gen)?;
+    exp.as_list()
+        .and_then(|list| list.get(0).cloned())
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))
+}
+
+fn tail(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
+    let exp = parse_unary(args, module, gen)?;
+    let list = exp
+        .as_list()
+        .map(|l| l[1..].to_vec())
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::List(list))
+}
+
+fn init(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
+    let exp = parse_unary(args, module, gen)?;
+    let list = exp
+        .as_list()
+        .map(|l| l[..l.len() - 1].to_vec())
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
+    Ok(Exp::List(list))
+}
+
+fn last(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
+    let exp = parse_unary(args, module, gen)?;
+    exp.as_list()
+        .and_then(|l| l.last().cloned())
+        .ok_or(EvalError::InvalidArgs(args.to_vec()))
+}
+
 fn nth(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
     if args.len() != 2 {
         return Err(EvalError::InvalidArgs(args.to_vec()));
@@ -375,6 +407,10 @@ pub fn default_module() -> Module {
     insert_unary_op(second, "second", &mut module);
     insert_unary_op(third, "third", &mut module);
     insert_binary_curry_op(nth, "nth", &mut module);
+    insert_unary_op(head, "head", &mut module);
+    insert_unary_op(tail, "tail", &mut module);
+    insert_unary_op(init, "init", &mut module);
+    insert_unary_op(last, "last", &mut module);
 
     insert_unary_op(print, "print", &mut module);
     insert_unary_op(println, "println", &mut module);
