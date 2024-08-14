@@ -10,46 +10,13 @@ pub struct Module {
     pub inner_modules: Vec<Module>,
 }
 
-impl Module {
-    pub fn set_define(&mut self, define: Define) {
-        self.defines.insert(define.name.clone(), define);
-    }
-
-    pub fn get_define(&self, name: &str) -> Option<&Define> {
-        self.defines.get(name)
-    }
-
-    pub fn set_macro(&mut self, macro_: Macro) {
-        self.macros.insert(macro_.name.clone(), macro_);
-    }
-
-    pub fn get_macro(&self, name: &str) -> Option<&Macro> {
-        self.macros.get(name)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct UnresolvedModule {
     pub name: String,
     pub defines: Vec<Define>,
     pub macros: Vec<Macro>,
     pub inner_modules: Vec<UnresolvedModule>,
-}
-
-impl UnresolvedModule {
-    pub fn new(
-        name: &str,
-        defines: &[Define],
-        macros: &[Macro],
-        inner_modules: &[UnresolvedModule],
-    ) -> Self {
-        UnresolvedModule {
-            name: name.to_string(),
-            defines: defines.to_vec(),
-            macros: macros.to_vec(),
-            inner_modules: inner_modules.to_vec(),
-        }
-    }
+    pub imported: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,12 +65,27 @@ impl Module {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Symbol {
+    pub name: String,
+    pub namespace: Vec<String>,
+}
+
+impl Symbol {
+    pub fn new(name: String, namespace: Vec<String>) -> Self {
+        Symbol {
+            name: name.to_string(),
+            namespace,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Exp {
     Nil,
     Bool(bool),
     Integer(i64),
     String(String),
-    Symbol(String),
+    Symbol(Symbol),
     Lambda(String, Box<Exp>),
     Apply(Box<Exp>, Box<Exp>),
     List(Vec<Exp>),
@@ -145,7 +127,7 @@ impl Exp {
         }
     }
 
-    pub fn as_symbol(&self) -> Option<&str> {
+    pub fn as_symbol(&self) -> Option<&Symbol> {
         match self {
             Exp::Symbol(s) => Some(s),
             _ => None,
@@ -167,7 +149,7 @@ impl Display for Exp {
             Exp::Bool(bool) => write!(f, "{}", bool),
             Exp::Integer(integer) => write!(f, "{}", integer),
             Exp::String(str) => write!(f, "{}", str),
-            Exp::Symbol(sym) => write!(f, "{}", sym),
+            Exp::Symbol(sym) => write!(f, "{}", sym.name),
             Exp::Lambda(arg, exp) => write!(f, "(\\ ({}) {})", arg, exp),
             Exp::Apply(exp1, exp2) => write!(f, "({} {})", exp1, exp2),
             Exp::List(exps) => write!(
@@ -205,8 +187,11 @@ pub fn string(s: &str) -> Exp {
     Exp::String(s.to_string())
 }
 
-pub fn symbol(sym: &str) -> Exp {
-    Exp::Symbol(sym.to_string())
+pub fn symbol(name: &str, namespace: Vec<String>) -> Exp {
+    Exp::Symbol(Symbol {
+        name: name.to_string(),
+        namespace,
+    })
 }
 
 pub fn lambda(param: &str, body: Exp) -> Exp {

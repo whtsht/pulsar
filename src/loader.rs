@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Module, UnresolvedModule},
+    ast::{Define, Macro, Module, Symbol, UnresolvedModule},
     buildin::default_module,
     parser::{ParseError, Parser},
 };
@@ -54,6 +54,32 @@ pub fn resolve_module(module: UnresolvedModule) -> Result<Module> {
     })
 }
 
+impl Module {
+    pub fn set_define(&mut self, define: Define) {
+        self.defines.insert(define.name.clone(), define);
+    }
+
+    pub fn get_define(&self, sym: &Symbol) -> Option<&Define> {
+        let mut module = self;
+        for name in sym.namespace.iter() {
+            module = module.inner_modules.iter().find(|m| &m.name == name)?;
+        }
+        module.defines.get(&sym.name)
+    }
+
+    pub fn set_macro(&mut self, macro_: Macro) {
+        self.macros.insert(macro_.name.clone(), macro_);
+    }
+
+    pub fn get_macro(&self, sym: &Symbol) -> Option<&Macro> {
+        let mut module = self;
+        for name in sym.namespace.iter() {
+            module = module.inner_modules.iter().find(|m| &m.name == name)?;
+        }
+        module.macros.get(&sym.name)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,7 +87,7 @@ mod tests {
 
     #[test]
     fn test_load_module() {
-        let func = |exp: Exp| list(&vec![symbol("block"), exp]);
+        let func = |exp: Exp| list(&vec![symbol("block", vec![]), exp]);
         let source = r#"
             (define x () 1)
             (define y () 2)

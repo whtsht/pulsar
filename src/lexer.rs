@@ -3,17 +3,16 @@ use std::ops::Not;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Lexer {
-    input: Vec<char>,
+    pub input: Vec<char>,
     pos: usize,
     loc: Location,
-    token: Option<Token>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum LexerError {
     IsNotInteger(Location),
     Eot(Location),
-    InvalidSymbol(Location),
+    InvalidIdent(Location),
 }
 
 pub fn lexer_error_message(error: LexerError, input: &str) -> String {
@@ -34,7 +33,7 @@ pub fn lexer_error_message(error: LexerError, input: &str) -> String {
                 " ".repeat(word.len())
             )
         }
-        LexerError::InvalidSymbol(loc) => {
+        LexerError::InvalidIdent(loc) => {
             let word = get_token_word(loc, input);
             format!("{}\n{} invalid symbol", word, "^".repeat(word.len()))
         }
@@ -54,7 +53,7 @@ fn valid_sym(ch: char) -> bool {
 }
 
 fn separator(ch: char) -> bool {
-    matches!(ch, '(' | ')' | '\n') || ch.is_whitespace()
+    matches!(ch, '(' | ')' | '\n' | ':') || ch.is_whitespace()
 }
 
 impl Lexer {
@@ -63,7 +62,6 @@ impl Lexer {
             input: input.chars().collect(),
             pos: 0,
             loc: Location::new(0, 0),
-            token: None,
         }
     }
 
@@ -128,7 +126,7 @@ impl Lexer {
             return Ok(String::new());
         }
         if ch.is_ascii_digit() || valid_sym(ch).not() {
-            return Err(LexerError::InvalidSymbol(loc));
+            return Err(LexerError::InvalidIdent(loc));
         }
         let mut value = String::from(ch);
 
@@ -137,8 +135,8 @@ impl Lexer {
                 self.dec();
                 break;
             }
-            if !valid_sym(ch) {
-                return Err(LexerError::InvalidSymbol(loc));
+            if valid_sym(ch).not() {
+                return Err(LexerError::InvalidIdent(loc));
             }
             value.push(ch);
         }
@@ -163,20 +161,15 @@ impl Lexer {
     }
 
     pub fn peek_token(&mut self) -> Result<Token, LexerError> {
-        if let Some(token) = &self.token {
-            Ok(token.clone())
-        } else {
-            let token = self.next_token()?;
-            self.token = Some(token.clone());
-            Ok(token)
-        }
+        let pos = self.pos;
+        let loc = self.loc;
+        let token = self.next_token();
+        self.pos = pos;
+        self.loc = loc;
+        token
     }
 
     pub fn next_token(&mut self) -> Result<Token, LexerError> {
-        if let Some(token) = self.token.take() {
-            return Ok(token);
-        }
-
         while self.current_char()?.is_whitespace() {
             self.inc()?;
         }
@@ -213,13 +206,21 @@ impl Lexer {
                 }
 
                 if self.next_cher()? != '.' {
-                    return Err(LexerError::InvalidSymbol(loc));
+                    return Err(LexerError::InvalidIdent(loc));
                 }
                 if self.next_cher()? != '.' {
-                    return Err(LexerError::InvalidSymbol(loc));
+                    return Err(LexerError::InvalidIdent(loc));
                 }
 
                 Ok(Token::new(TokenKind::Spread, loc))
+            }
+            ':' => {
+                let loc = self.loc;
+                self.inc()?;
+                if self.next_cher()? != ':' {
+                    return Err(LexerError::InvalidIdent(loc));
+                }
+                Ok(Token::new(TokenKind::NameResolver, loc))
             }
             '(' => {
                 let loc = self.loc;
@@ -260,7 +261,7 @@ impl Lexer {
                     ))
                 } else {
                     let value = format!("-{}", self.symbol()?);
-                    Ok(Token::new(TokenKind::Symbol(value), loc))
+                    Ok(Token::new(TokenKind::Ident(value), loc))
                 }
             }
             '"' => {
@@ -276,7 +277,7 @@ impl Lexer {
             _ => {
                 let loc = self.loc;
                 let value = self.symbol()?;
-                Ok(Token::new(TokenKind::Symbol(value), loc))
+                Ok(Token::new(TokenKind::Ident(value), loc))
             }
         }
     }
@@ -290,19 +291,19 @@ impl Lexer {
 mod tests {
     use super::*;
     #[test]
-    fn test_symbol() {
+    fn test_chars() {
         let mut lexer = Lexer::new("hello world");
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("hello".to_string()),
+                TokenKind::Ident("hello".to_string()),
                 Location::new(0, 0)
             ))
         );
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("world".to_string()),
+                TokenKind::Ident("world".to_string()),
                 Location::new(0, 6)
             ))
         );
@@ -317,7 +318,7 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("a0aa".to_string()),
+                TokenKind::Ident("a0aa".to_string()),
                 Location::new(0, 0)
             ))
         );
@@ -326,7 +327,7 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("<=has-many=>".to_string()),
+                TokenKind::Ident("<=has-many=>".to_string()),
                 Location::new(0, 0)
             ))
         );
@@ -335,7 +336,7 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("aaa".to_string()),
+                TokenKind::Ident("aaa".to_string()),
                 Location::new(0, 0)
             ))
         );
@@ -346,7 +347,7 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("bbb".to_string()),
+                TokenKind::Ident("bbb".to_string()),
                 Location::new(0, 4)
             ))
         );
@@ -392,7 +393,7 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("+".to_string()),
+                TokenKind::Ident("+".to_string()),
                 Location::new(0, 1)
             ))
         );
@@ -420,7 +421,7 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("-".to_string()),
+                TokenKind::Ident("-".to_string()),
                 Location::new(0, 1)
             ))
         );
@@ -479,20 +480,58 @@ mod tests {
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("hello".to_string()),
+                TokenKind::Ident("hello".to_string()),
                 Location::new(0, 1)
             ))
         );
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(
-                TokenKind::Symbol("world".to_string()),
+                TokenKind::Ident("world".to_string()),
                 Location::new(1, 15)
             ))
         );
         assert_eq!(
             lexer.next_token(),
             Ok(Token::new(TokenKind::RParen, Location::new(1, 20)))
+        );
+    }
+
+    #[test]
+    fn test_symbol() {
+        let mut lexer = Lexer::new("foo::bar::baz");
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(
+                TokenKind::Ident("foo".to_string()),
+                Location::new(0, 0)
+            ))
+        );
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(TokenKind::NameResolver, Location::new(0, 3)))
+        );
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(
+                TokenKind::Ident("bar".to_string()),
+                Location::new(0, 5)
+            ))
+        );
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(TokenKind::NameResolver, Location::new(0, 8)))
+        );
+        assert_eq!(
+            lexer.next_token(),
+            Ok(Token::new(
+                TokenKind::Ident("baz".to_string()),
+                Location::new(0, 10)
+            ))
+        );
+        assert_eq!(
+            lexer.next_token(),
+            Err(LexerError::Eot(Location::new(0, 13)))
         );
     }
 }

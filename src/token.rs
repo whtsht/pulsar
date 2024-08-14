@@ -23,9 +23,9 @@ impl Token {
 }
 
 impl Token {
-    pub fn as_symbol(&self) -> Option<&str> {
+    pub fn as_ident(&self) -> Option<&str> {
         match &self.kind {
-            TokenKind::Symbol(s) => Some(s),
+            TokenKind::Ident(s) => Some(s),
             _ => None,
         }
     }
@@ -36,13 +36,15 @@ pub enum TokenKind {
     LParen,
     RParen,
     Integer(i64),
-    Symbol(String),
+    Ident(String),
     String(String),
     Quote,
     BackQuote,
     UnQuote,
     Extend,
     Spread,
+    Import,
+    NameResolver,
 }
 
 fn separator(ch: char) -> bool {

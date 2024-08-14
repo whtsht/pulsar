@@ -5,7 +5,7 @@ pub enum EvalError {
     IsNotNumber(Exp),
     InvalidArgs(Vec<Exp>),
     DivideByZero(Exp),
-    SymbolNotFound(String),
+    SymbolNotFound(Symbol),
     Unexpected(Exp),
     ExpectedBool(Exp),
     ExpectedLambda(Exp),
@@ -54,7 +54,12 @@ fn subst(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
             let yy = gen.gen_var();
             Exp::Lambda(
                 yy.clone(),
-                Box::new(subst(e2, x, subst(Exp::Symbol(yy), y, *e, gen), gen)),
+                Box::new(subst(
+                    e2,
+                    x,
+                    subst(Exp::Symbol(Symbol::new(yy, vec![])), y, *e, gen),
+                    gen,
+                )),
             )
         }
         Exp::Apply(e11, e12) => Exp::Apply(
@@ -62,7 +67,7 @@ fn subst(e2: Exp, x: String, e1: Exp, gen: &mut VariableGenerator) -> Exp {
             Box::new(subst(e2, x, *e12, gen)),
         ),
         Exp::Symbol(sym) => {
-            if sym == x {
+            if sym.name == x {
                 e2
             } else {
                 Exp::Symbol(sym)
@@ -140,7 +145,7 @@ fn eval_app(e1: Exp, e2: Exp, module: &Module, gen: &mut VariableGenerator) -> R
             }
         }
         Exp::Symbol(sym) => {
-            if let Some(def) = module.defines.get(&sym) {
+            if let Some(def) = module.get_define(&sym) {
                 eval_app(def.exp.clone(), e2, module, gen)
             } else {
                 Err(EvalError::SymbolNotFound(sym))
@@ -163,9 +168,9 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
     match exp.clone() {
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => Ok(exp),
         Exp::Symbol(sym) => {
-            if let Some(def) = module.defines.get(&sym) {
+            if let Some(def) = module.get_define(&sym) {
                 Ok(def.exp.clone())
-            } else if let Some(_) = module.macros.get(&sym) {
+            } else if let Some(_) = module.get_macro(&sym) {
                 Ok(exp)
             } else {
                 Err(EvalError::SymbolNotFound(sym))
@@ -190,7 +195,7 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
                 let head = eval(head.clone(), module, gen)?;
 
                 if let Some(sym) = head.as_symbol() {
-                    if let Some(macro_) = module.macros.get(sym).cloned() {
+                    if let Some(macro_) = module.get_macro(sym).cloned() {
                         return eval_macro(macro_, tail, module, gen);
                     }
                 }
@@ -301,7 +306,7 @@ impl Module {
             return eval_macro(macro_, &args, self, &mut gen);
         }
 
-        let exp = list(&[vec![symbol(name)], args].concat());
+        let exp = list(&[vec![symbol(name, vec![])], args].concat());
         eval(exp, self, &mut gen)
     }
 
@@ -323,7 +328,7 @@ mod test {
         let e = subst(
             integer(2),
             "x".to_string(),
-            symbol("x"),
+            symbol("x", vec![]),
             &mut VariableGenerator::new(),
         );
         assert_eq!(e, integer(2));
@@ -333,7 +338,7 @@ mod test {
         let e = subst(
             integer(2),
             "x".to_string(),
-            apply(lambda("x", integer(1)), symbol("x")),
+            apply(lambda("x", integer(1)), symbol("x", vec![])),
             &mut VariableGenerator::new(),
         );
         assert_eq!(e, apply(lambda("#0", integer(1)), integer(2)));
@@ -343,10 +348,10 @@ mod test {
         let e = subst(
             integer(2),
             "x".to_string(),
-            apply(lambda("x", symbol("x")), integer(1)),
+            apply(lambda("x", symbol("x", vec![])), integer(1)),
             &mut VariableGenerator::new(),
         );
-        assert_eq!(e, apply(lambda("#0", symbol("#0")), integer(1)));
+        assert_eq!(e, apply(lambda("#0", symbol("#0", vec![])), integer(1)));
 
         // [2/x](let (x 1) x)
         // => [2/x]((\ x x) 1)
@@ -354,10 +359,10 @@ mod test {
         let e = subst(
             integer(2),
             "x".to_string(),
-            let_(("x", integer(1)), symbol("x")),
+            let_(("x", integer(1)), symbol("x", vec![])),
             &mut VariableGenerator::new(),
         );
-        assert_eq!(e, apply(lambda("#0", symbol("#0")), integer(1)));
+        assert_eq!(e, apply(lambda("#0", symbol("#0", vec![])), integer(1)));
 
         // [2/x](let (y 1) x)
         // => [2/x]((\y x) 1)
@@ -365,7 +370,7 @@ mod test {
         let e = subst(
             integer(2),
             "x".to_string(),
-            let_(("y", integer(1)), symbol("x")),
+            let_(("y", integer(1)), symbol("x", vec![])),
             &mut VariableGenerator::new(),
         );
         assert_eq!(e, apply(lambda("#0", integer(2)), integer(1)));
@@ -386,42 +391,54 @@ mod test {
         assert_eq!(eval_empty_module(e), Ok(string("hello")));
 
         // (quote ((\ x x) 1)) => ((\ x x) 1)
-        let e = quote(apply(lambda("x", symbol("x")), integer(1)));
+        let e = quote(apply(lambda("x", symbol("x", vec![])), integer(1)));
         assert_eq!(
             eval_empty_module(e),
-            Ok(apply(lambda("x", symbol("x")), integer(1)))
+            Ok(apply(lambda("x", symbol("x", vec![])), integer(1)))
         );
 
         // (quote a) => a
-        let e = quote(symbol("a"));
-        assert_eq!(eval_empty_module(e), Ok(symbol("a")));
+        let e = quote(symbol("a", vec![]));
+        assert_eq!(eval_empty_module(e), Ok(symbol("a", vec![])));
     }
 
     #[test]
     fn test_lambda() {
         // (((\x . (\y . y)) 'a) 'b) => b
         let e = apply(
-            apply(lambda("x", lambda("y", symbol("y"))), quote(symbol("a"))),
-            quote(symbol("b")),
+            apply(
+                lambda("x", lambda("y", symbol("y", vec![]))),
+                quote(symbol("a", vec![])),
+            ),
+            quote(symbol("b", vec![])),
         );
-        assert_eq!(eval_empty_module(e), Ok(symbol("b")));
+        assert_eq!(eval_empty_module(e), Ok(symbol("b", vec![])));
 
         // // ((\x . (\y . y)) 'a 'b) => b
         let e = apply(
-            apply(lambda("x", lambda("y", symbol("y"))), quote(symbol("a"))),
-            quote(symbol("b")),
+            apply(
+                lambda("x", lambda("y", symbol("y", vec![]))),
+                quote(symbol("a", vec![])),
+            ),
+            quote(symbol("b", vec![])),
         );
-        assert_eq!(eval_empty_module(e), Ok(symbol("b")));
+        assert_eq!(eval_empty_module(e), Ok(symbol("b", vec![])));
 
         // ((\x (\y (x y))) y)
         // => (\#0 (y #0))
         let e = apply(
-            lambda("x", lambda("y", apply(symbol("x"), symbol("y")))),
-            symbol("y"),
+            lambda(
+                "x",
+                lambda("y", apply(symbol("x", vec![]), symbol("y", vec![]))),
+            ),
+            symbol("y", vec![]),
         );
         assert_eq!(
             eval_empty_module(e),
-            Ok(lambda("#0", apply(symbol("y"), symbol("#0")))),
+            Ok(lambda(
+                "#0",
+                apply(symbol("y", vec![]), symbol("#0", vec![]))
+            )),
         );
     }
 
@@ -455,7 +472,7 @@ mod test {
         // => 11
         let e = let_(
             ("a", integer(1)),
-            list(&[symbol("+"), symbol("a"), integer(10)]),
+            list(&[symbol("+", vec![]), symbol("a", vec![]), integer(10)]),
         );
         assert_eq!(eval_default_module(e), Ok(integer(11)));
         // (let (a 1) (let (b a) (+ a b)))
@@ -465,8 +482,12 @@ mod test {
         let e = let_(
             ("a", integer(1)),
             let_(
-                ("b", symbol("a")),
-                list(&[symbol("+"), symbol("a"), symbol("b")]),
+                ("b", symbol("a", vec![])),
+                list(&[
+                    symbol("+", vec![]),
+                    symbol("a", vec![]),
+                    symbol("b", vec![]),
+                ]),
             ),
         );
         assert_eq!(eval_default_module(e), Ok(integer(2)));
@@ -494,7 +515,7 @@ mod test {
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
         assert_eq!(
             module.run("test", vec![]),
-            Ok(list(&[symbol("a"), integer(3)]))
+            Ok(list(&[symbol("a", vec![]), integer(3)]))
         );
 
         let source = r#"
@@ -504,7 +525,7 @@ mod test {
         assert_eq!(module.defines.len(), default_module().defines.len() + 1);
         assert_eq!(
             module.run("test", vec![integer(1)]),
-            Ok(list(&[symbol("a"), integer(1)]))
+            Ok(list(&[symbol("a", vec![]), integer(1)]))
         );
 
         let source = r#"
@@ -513,10 +534,10 @@ mod test {
         assert_eq!(
             module.run("test", vec![]),
             Ok(list(&[
-                symbol("a"),
+                symbol("a", vec![]),
                 backquote(list(&[
-                    symbol("b"),
-                    unquote(list(&[symbol("+"), integer(1), integer(2)]))
+                    symbol("b", vec![]),
+                    unquote(list(&[symbol("+", vec![]), integer(1), integer(2)]))
                 ]))
             ]))
         );
@@ -535,7 +556,7 @@ mod test {
 
         (macro sum (...values) `(foldl + 0 '.values))"#;
         let module = load_module(source, "test").unwrap();
-        assert_eq!(module.run("test1", vec![]), Ok(symbol("b")));
+        assert_eq!(module.run("test1", vec![]), Ok(symbol("b", vec![])));
         assert_eq!(module.run("test2", vec![]), Ok(bool(false)));
         assert_eq!(module.run("test3", vec![]), Ok(bool(true)));
         assert_eq!(
@@ -551,8 +572,8 @@ mod test {
         assert_eq!(
             eval_default_module(exp),
             Ok(list(&[
-                symbol("a"),
-                symbol("b"),
+                symbol("a", vec![]),
+                symbol("b", vec![]),
                 integer(1),
                 integer(2),
                 integer(3)
@@ -591,6 +612,17 @@ mod test {
 
         (define test ()
             (let (first (\ x x)) (foo '(1 2 3))))"#;
+        let module = load_module(source, "test").unwrap();
+        assert_eq!(module.run("test", vec![]), Ok(integer(1)));
+    }
+
+    #[test]
+    fn test_import() {
+        let source = r#"
+            (module foo
+                (define bar () 1))
+            (define test () foo::bar)
+            "#;
         let module = load_module(source, "test").unwrap();
         assert_eq!(module.run("test", vec![]), Ok(integer(1)));
     }

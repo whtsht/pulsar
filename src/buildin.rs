@@ -275,7 +275,7 @@ fn symbol_to_string(args: &[Exp], module: &Module, gen: &mut VariableGenerator) 
     let s = exp
         .as_symbol()
         .ok_or(EvalError::InvalidArgs(args.to_vec()))?;
-    Ok(Exp::String(s.to_string()))
+    Ok(Exp::String(s.name.to_string()))
 }
 
 fn foldr(args: &[Exp], module: &Module, gen: &mut VariableGenerator) -> Result<Exp> {
@@ -349,7 +349,11 @@ fn insert_binary_curry_op(
                 "x",
                 ast::lambda(
                     "y",
-                    ast::list(&[Exp::BuildIn(func), ast::symbol("x"), ast::symbol("y")]),
+                    ast::list(&[
+                        Exp::BuildIn(func),
+                        ast::symbol("x", vec![]),
+                        ast::symbol("y", vec![]),
+                    ]),
                 ),
             ),
         ),
@@ -373,9 +377,9 @@ fn insert_ternary_curry_op(
                         "z",
                         ast::list(&[
                             Exp::BuildIn(func),
-                            ast::symbol("x"),
-                            ast::symbol("y"),
-                            ast::symbol("z"),
+                            ast::symbol("x", vec![]),
+                            ast::symbol("y", vec![]),
+                            ast::symbol("z", vec![]),
                         ]),
                     ),
                 ),
@@ -450,27 +454,27 @@ mod tests {
     #[test]
     fn test_integer_binary_op() {
         // (+ 1 2)
-        let e = list(&[symbol("+"), integer(1), integer(2)]);
+        let e = list(&[symbol("+", vec![]), integer(1), integer(2)]);
         assert_eq!(eval_default_module(e), Ok(Exp::Integer(3)));
 
         // (- 1 2)
-        let e = list(&[symbol("-"), integer(1), integer(2)]);
+        let e = list(&[symbol("-", vec![]), integer(1), integer(2)]);
         assert_eq!(eval_default_module(e), Ok(Exp::Integer(-1)));
     }
 
     #[test]
     fn test_compare_op() {
         // (== 1 1) => true
-        let e = list(&[symbol("=="), integer(1), integer(1)]);
+        let e = list(&[symbol("==", vec![]), integer(1), integer(1)]);
         assert_eq!(eval_default_module(e), Ok(bool(true)));
 
         // (/= 1 1) => false
-        let e = list(&[symbol("/="), integer(1), integer(1)]);
+        let e = list(&[symbol("/=", vec![]), integer(1), integer(1)]);
         assert_eq!(eval_default_module(e), Ok(bool(false)));
 
         // (/= '(1 2) 2) => true
         let e = list(&[
-            symbol("/="),
+            symbol("/=", vec![]),
             quote(list(&[integer(1), integer(2)])),
             integer(2),
         ]);
@@ -478,7 +482,7 @@ mod tests {
 
         // (== '(1 2) 2) => false
         let e = list(&[
-            symbol("=="),
+            symbol("==", vec![]),
             quote(list(&[integer(1), integer(2)])),
             integer(2),
         ]);
@@ -489,7 +493,7 @@ mod tests {
     fn test_cons() {
         // (cons 1 '(2 3)) => (1 2 3)
         let e = list(&[
-            symbol("cons"),
+            symbol("cons", vec![]),
             integer(1),
             quote(list(&[integer(2), integer(3)])),
         ]);
@@ -499,12 +503,12 @@ mod tests {
         );
 
         // (cons 1 2) => (1 2)
-        let e = list(&[symbol("cons"), integer(1), integer(2)]);
+        let e = list(&[symbol("cons", vec![]), integer(1), integer(2)]);
         assert_eq!(eval_default_module(e), Ok(list(&[integer(1), integer(2)])));
 
         // (cons '(1 2) 3) => ((1 2) 3)
         let e = list(&[
-            symbol("cons"),
+            symbol("cons", vec![]),
             quote(list(&[integer(1), integer(2)])),
             integer(3),
         ]);
@@ -517,47 +521,59 @@ mod tests {
     #[test]
     fn test_list() {
         // (list 1 2 3) => (1 2 3)
-        let e = list(&[symbol("list"), integer(1), integer(2), integer(3)]);
+        let e = list(&[symbol("list", vec![]), integer(1), integer(2), integer(3)]);
         assert_eq!(
             eval_default_module(e),
             Ok(list(&[integer(1), integer(2), integer(3)]))
         );
         // (list (+ 1 2)) => (3)
-        let e = list(&[symbol("list"), list(&[symbol("+"), integer(1), integer(2)])]);
+        let e = list(&[
+            symbol("list", vec![]),
+            list(&[symbol("+", vec![]), integer(1), integer(2)]),
+        ]);
         assert_eq!(eval_default_module(e), Ok(list(&[integer(3)])));
     }
 
     #[test]
     fn test_is_atom() {
         // (atom 1) => true
-        let e = list(&[symbol("atom"), integer(1)]);
+        let e = list(&[symbol("atom", vec![]), integer(1)]);
         assert_eq!(eval_default_module(e), Ok(bool(true)));
 
         // (atom '(1 2)) => false
-        let e = list(&[symbol("atom"), quote(list(&[integer(1), integer(2)]))]);
+        let e = list(&[
+            symbol("atom", vec![]),
+            quote(list(&[integer(1), integer(2)])),
+        ]);
         assert_eq!(eval_default_module(e), Ok(bool(false)));
     }
 
     #[test]
     fn test_nth() {
         // (first '(1 2)) => 1
-        let e = list(&[symbol("first"), quote(list(&[integer(1), integer(2)]))]);
+        let e = list(&[
+            symbol("first", vec![]),
+            quote(list(&[integer(1), integer(2)])),
+        ]);
         assert_eq!(eval_default_module(e), Ok(integer(1)));
 
         // (second '(1 2)) => 2
-        let e = list(&[symbol("second"), quote(list(&[integer(1), integer(2)]))]);
+        let e = list(&[
+            symbol("second", vec![]),
+            quote(list(&[integer(1), integer(2)])),
+        ]);
         assert_eq!(eval_default_module(e), Ok(integer(2)));
 
         // (third '(1 2 3)) => 3
         let e = list(&[
-            symbol("third"),
+            symbol("third", vec![]),
             quote(list(&[integer(1), integer(2), integer(3)])),
         ]);
         assert_eq!(eval_default_module(e), Ok(integer(3)));
 
         // (nth 5 '(1 2 3 4 5 6 7)) => 6
         let e = list(&[
-            symbol("nth"),
+            symbol("nth", vec![]),
             integer(5),
             quote(list(&[
                 integer(1),
@@ -575,42 +591,49 @@ mod tests {
     #[test]
     fn test_string_append() {
         // (string-append "abc" "def") => "abcdef"
-        let e = list(&[symbol("string-append"), string("abc"), string("def")]);
+        let e = list(&[
+            symbol("string-append", vec![]),
+            string("abc"),
+            string("def"),
+        ]);
         assert_eq!(eval_default_module(e), Ok(string("abcdef")));
     }
 
     #[test]
     fn test_string_head() {
         // (string-head "abc") => "a"
-        let e = list(&[symbol("string-head"), string("abc")]);
+        let e = list(&[symbol("string-head", vec![]), string("abc")]);
         assert_eq!(eval_default_module(e), Ok(string("a")));
     }
 
     #[test]
     fn test_string_tail() {
         // (string-tail "abc") => "bc"
-        let e = list(&[symbol("string-tail"), string("abc")]);
+        let e = list(&[symbol("string-tail", vec![]), string("abc")]);
         assert_eq!(eval_default_module(e), Ok(string("bc")));
     }
 
     #[test]
     fn test_string_init() {
         // (string-init "abc") => "ab"
-        let e = list(&[symbol("string-init"), string("abc")]);
+        let e = list(&[symbol("string-init", vec![]), string("abc")]);
         assert_eq!(eval_default_module(e), Ok(string("ab")));
     }
 
     #[test]
     fn test_string_last() {
         // (string-last "abc") => "c"
-        let e = list(&[symbol("string-last"), string("abc")]);
+        let e = list(&[symbol("string-last", vec![]), string("abc")]);
         assert_eq!(eval_default_module(e), Ok(string("c")));
     }
 
     #[test]
     fn test_symbol_to_string() {
         // (symbol->string 'abc) => "abc"
-        let e = list(&[symbol("symbol->string"), quote(symbol("abc"))]);
+        let e = list(&[
+            symbol("symbol->string", vec![]),
+            quote(symbol("abc", vec![])),
+        ]);
         assert_eq!(eval_default_module(e), Ok(string("abc")));
     }
 
@@ -618,8 +641,8 @@ mod tests {
     fn test_fold() {
         // (foldr - 0 '(1 2 3 4 5)) => 3
         let e = list(&[
-            symbol("foldr"),
-            symbol("-"),
+            symbol("foldr", vec![]),
+            symbol("-", vec![]),
             integer(0),
             quote(list(&[
                 integer(1),
@@ -633,8 +656,8 @@ mod tests {
 
         // (foldl - 0 '(1 2 3 4 5)) => -15
         let e = list(&[
-            symbol("foldl"),
-            symbol("-"),
+            symbol("foldl", vec![]),
+            symbol("-", vec![]),
             integer(0),
             quote(list(&[
                 integer(1),
@@ -651,8 +674,8 @@ mod tests {
     fn test_filter() {
         // (filter odd '(1 2 3 4 5)) => (1 3 5)
         let e = list(&[
-            symbol("filter"),
-            symbol("odd"),
+            symbol("filter", vec![]),
+            symbol("odd", vec![]),
             quote(list(&[
                 integer(1),
                 integer(2),
@@ -670,8 +693,8 @@ mod tests {
     #[test]
     fn test_block() {
         let e = list(&[
-            symbol("block"),
-            list(&[symbol("print"), integer(1)]),
+            symbol("block", vec![]),
+            list(&[symbol("print", vec![]), integer(1)]),
             integer(2),
             integer(3),
         ]);
