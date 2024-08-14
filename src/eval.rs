@@ -169,7 +169,7 @@ pub fn eval(exp: Exp, module: &Module, gen: &mut VariableGenerator) -> Result<Ex
         Exp::Integer(_) | Exp::Nil | Exp::Bool(_) | Exp::String(_) | Exp::BuildIn(_) => Ok(exp),
         Exp::Symbol(sym) => {
             if let Some(def) = module.get_define(&sym) {
-                Ok(def.exp.clone())
+                eval(def.exp.clone(), module, gen)
             } else if let Some(_) = module.get_macro(&sym) {
                 Ok(exp)
             } else {
@@ -306,7 +306,12 @@ impl Module {
             return eval_macro(macro_, &args, self, &mut gen);
         }
 
-        let exp = list(&[vec![symbol(name, vec![])], args].concat());
+        let exp = if args.len() != 0 {
+            list(&[vec![symbol(name, vec![])], args].concat())
+        } else {
+            symbol(name, vec![])
+        };
+
         eval(exp, self, &mut gen)
     }
 
@@ -508,13 +513,9 @@ mod test {
 
     #[test]
     fn test_unquote() {
-        let source = r#"
-        (define test () `(a .(+ 1 2)))
-        "#;
-        let module = load_module(source, "test").unwrap();
-        assert_eq!(module.defines.len(), default_module().defines.len() + 1);
+        let exp = Parser::new("`(a .(+ 1 2))").parse_exp().unwrap();
         assert_eq!(
-            module.run("test", vec![]),
+            eval_default_module(exp),
             Ok(list(&[symbol("a", vec![]), integer(3)]))
         );
 
@@ -620,8 +621,9 @@ mod test {
     fn test_import() {
         let source = r#"
             (module foo
-                (define bar () 1))
-            (define test () foo::bar)
+                (module bar
+                    (define baz () 1)))
+            (define test () foo::bar::baz)
             "#;
         let module = load_module(source, "test").unwrap();
         assert_eq!(module.run("test", vec![]), Ok(integer(1)));
